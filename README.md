@@ -1,16 +1,15 @@
-# RngKit 3.0
+# RngKit 1.0
 by Thiago Jung  
-https://github.com/Thiagojm/RngKitPSG  
+https://github.com/Thiagojm/RngKitST 
 thiagojm1984@hotmail.com   
 Written in Python 3.13
 ---
 
 ## Important note
-**From version 3.0 onwards we adopted a new datetime and file naming format, so analyses made with previously collected files will not work. For those, use the 2.x versions.**
+**Mirrored from RngKitPSG 3.0 (https://github.com/Thiagojm/RngKitPSG) but using the Streamlit GUI, since PySimpleGUI no longer has support**
 
-### What changed in 3.x
+### What changed in 1.x
 - Direct BitBabbler support via Python (no seedd.exe daemon needed)
-- File names for BitBabbler now include the fold setting (e.g., `_f0`..`_f4`)
 - Data Analysis auto-detects sample size and interval from the file name
 
 
