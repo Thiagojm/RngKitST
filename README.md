@@ -1,126 +1,254 @@
-# RngKit 1.0
-by Thiago Jung  
-https://github.com/Thiagojm/RngKitST   
-thiagojm1984@hotmail.com   
-Written in Python 3.13
+# 🎲 RngKit 1.0 - Streamlit Version
+
+**A powerful tool for True Random Number Generator data collection and statistical analysis**
+
+[![Python](https://img.shields.io/badge/Python-3.13-blue.svg)](https://python.org)
+[![Streamlit](https://img.shields.io/badge/Streamlit-1.28+-red.svg)](https://streamlit.io)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
+*by [Thiago Jung](https://github.com/Thiagojm) • [thiagojm1984@hotmail.com](mailto:thiagojm1984@hotmail.com)*
+
+[GitHub Repository](https://github.com/Thiagojm/RngKitST) • [Original RngKitPSG](https://github.com/Thiagojm/RngKitPSG)
+
 ---
 
-## Important note
-**Mirrored from RngKitPSG 3.0 (https://github.com/Thiagojm/RngKitPSG) but using the Streamlit GUI, since PySimpleGUI no longer has support**
+## 📋 Table of Contents
 
-### What changed in 1.x
-- Direct BitBabbler support via Python (no seedd.exe daemon needed)
-- Data Analysis auto-detects sample size and interval from the file name
+- [🎯 Overview](#-overview)
+- [🔧 Supported Hardware](#-supported-hardware)
+- [⚡ Quick Start](#-quick-start)
+- [📦 Installation](#-installation)
+- [🚀 Usage Guide](#-usage-guide)
+- [📁 File Naming Convention](#-file-naming-convention)
+- [⚠️ Known Issues](#️-known-issues)
+- [📄 License](#-license)
 
+---
 
-## Abstract
+## 🎯 Overview
 
-This application uses two types of TRNGs — True Random Number Generators (TrueRNG and BitBabbler) — and a Pseudo RNG (based on Python’s `secrets` module)
-for data collection and statistical analysis for several purposes, including mind–matter interaction research.  
-It collects random data in user-defined sample sizes and intervals and counts the number of ‘1’ bits per sample.
-Afterwards, the data can be analyzed against the expected value (50%) and visualized as a cumulative Z‑Score.
+**RngKit 1.0** is a modernized version of the original RngKitPSG 3.0, rebuilt with **Streamlit** for better cross-platform compatibility and user experience. This application provides comprehensive tools for collecting and analyzing data from True Random Number Generators (TRNGs) and Pseudo Random Number Generators (PRNGs).
 
+### ✨ Key Features
 
-## Supported hardware
+- 🔌 **Multi-Device Support**: TrueRNG, BitBabbler, and Pseudo RNG
+- 📊 **Real-time Analysis**: Live plotting with Z-score visualization
+- 📈 **Statistical Analysis**: Automated Excel report generation with charts
+- 🔄 **Data Concatenation**: Combine multiple CSV files for extended analysis
+- 🖥️ **Cross-Platform**: Windows, Linux, and macOS support
+- 🎨 **Modern UI**: Clean, intuitive Streamlit interface
 
-1- TrueRNG and TrueRNGPro (https://ubld.it/);  
-2- BitBabbler Black and White (http://www.bitbabbler.org/what.html);  
-3- No Hardware: Pseudo RNG (using Python `secrets` module — not truly random).
+### 🔄 What's New in 1.x
 
-## Installation
+- ✅ **Direct BitBabbler Support**: No more `seedd.exe` daemon required
+- ✅ **Auto-Detection**: Sample size and interval detection from filenames
+- ✅ **Enhanced Error Handling**: User-friendly device disconnection alerts
+- ✅ **Performance Optimizations**: Cached operations for better responsiveness
 
-### Windows Installation
+---
 
-1- Hardware Installation (Windows):
-    The default installation path is: "C:\Users\Username\RngKit" - Where Username is the name of the windows current user.  
-    1.1- TrueRNG and TrueRNGPro:  
-         Choose from the 2-Installation folder (inside the "C:\Users\Username\RngKit") the TrueRng folder, the folder for your device (TrueRng3 or TrueRngPro)
-         Within this folder, right-click the TrueRNG.inf or TrueRNGpro.inf file and select Install. Follow the instructions for installation.  
-    1.2- BitBabbler:  
-         Inside the 2-Installation\BitBabbler folder (inside the "C:\Users\Username\RngKit"), run vcredist_x64.exe and follow the installation guidelines.
-         Insert your BitBabbler device into a USB port and run the zadig-2.8.exe file. Select your device and click "Install Driver".
-         Wait for the process to finish and close the program.
+## 🔧 Supported Hardware
 
-### Linux Installation
+| Device | Model | Status | Notes |
+|--------|-------|--------|-------|
+| **TrueRNG** | TrueRNG3, TrueRNGPro | ✅ Supported | [ubld.it](https://ubld.it/) |
+| **BitBabbler** | Black, White | ✅ Supported | [bitbabbler.org](http://www.bitbabbler.org/what.html) |
+| **Pseudo RNG** | Python `secrets` | ✅ Supported | Not truly random, for testing only |
 
-1- System Setup:
-    Run the automated setup script as root:
-    ```bash
-    sudo ./tools/installers/setup_rng_devices_linux_python.sh
-    ```
-    This script will:
-    - Set up udev rules for BitBabbler and TrueRNG devices
-    - Create required user groups
-    - Configure device permissions
+---
 
-2- Manual Setup (if needed):
-    ```bash
-    # Install Python dependencies
-    pip3 install -r requirements_streamlit.txt
-    
-    # Install system dependencies
-    sudo apt-get install libusb-1.0-0-dev
-    
-    # Add user to bit-babbler group (for BitBabbler access)
-    sudo usermod -aG bit-babbler $USER
-    ```
+## ⚡ Quick Start
 
-### Python Dependencies (All Platforms)
-    Use the provided requirements file: `pip install -r requirements_streamlit.txt`
+1. **Install dependencies**:
+   ```bash
+   pip install -r requirements_streamlit.txt
+   ```
 
-## Usage
+2. **Run the application**:
+   ```bash
+   streamlit run main_streamlit.py
+   ```
 
-Run the app:
+3. **Open your browser** to `http://localhost:8501`
 
+4. **Start collecting data** with your preferred RNG device!
+
+---
+
+## 📦 Installation
+
+### 🪟 Windows Installation
+
+#### Hardware Setup
+
+1. **TrueRNG/TrueRNGPro**:
+   - Navigate to `2-Installation/TrueRng/` folder
+   - Right-click `TrueRNG.inf` or `TrueRNGpro.inf`
+   - Select "Install" and follow the prompts
+
+2. **BitBabbler**:
+   - Run `vcredist_x64.exe` from `2-Installation/BitBabbler/`
+   - Insert BitBabbler device into USB port
+   - Run `zadig-2.8.exe` and install driver for your device
+
+### 🐧 Linux Installation
+
+#### Automated Setup (Recommended)
 ```bash
-streamlit run main_streamlit.py
+sudo ./tools/installers/setup_rng_devices_linux_python.sh
 ```
 
-The program has 3 tabs:
+This script will:
+- ✅ Set up udev rules for device access
+- ✅ Create required user groups
+- ✅ Configure device permissions
 
-- ## Tab 1 — Data Collection & Analysis
->### Collecting:  
->>To collect data, select the device to use, or multiple devices and click "Start". You can set the sample size (in bits) and the sample interval (in seconds). 
-BitBabbler supports folds 0–4 (0 = RAW; 1–4 = XOR folding). TrueRNG has no fold option.
-PseudoRNG uses the Python `secrets` module that gathers entropy from your system; it is not a good source of true randomness, but you can use it if you don’t have a hardware RNG. 
-Hit "Stop" when you wish to stop the process. Two files are going to be created inside the `data/raw/` folder by default (override with env `RNGKIT_DATA_DIR`). One with .bin extension and another with .csv.
-The .bin is in binary form and is used as a controller. The .csv contains more info, like the time of each collected series and the count of 'ones' that appeared in each series. Usually it will be better to analyse the .csv file.   
+#### Manual Setup
+```bash
+# Install Python dependencies
+pip3 install -r requirements_streamlit.txt
 
->### Analysing:  
->>To analyse the file and generate an Excel file with Z‑score and a graph, select a previously generated .bin or .csv file with the "Browse" button.
-The app now auto‑detects the interval and the sample size from the filename.
-Clicking "Generate" will automatically generate a file with the same name as the one selected, but with extension .xlsx, with the analyzed data.
-This data and chart represent the cumulative Z‑score of 'ones' that appeared in the samples.
-This file will be saved in the `data/raw/` folder. You can click "Open Output Folder" to open Windows Explorer at the file location.  
+# Install system dependencies
+sudo apt-get install libusb-1.0-0-dev
 
->### Concatenate:  
->>If you want to concatenate CSV files, browse the files in "Concatenate Multiple CSV Files". It will create a new concatenated file. It’s important to concatenate only files with the same interval and sample size, or you will get wrong results. Select the proper Sample Size and Interval before concatenating from the inputs above.
+# Add user to bit-babbler group
+sudo usermod -aG bit-babbler $USER
 
-- ## Tab 2 — Live Plot  
->Select the device to use (BitBabbler folds 0–4 supported).
-Click on "Start", the chart will update and at the same time two files will be generated and saved to `data/raw/` (.bin and .csv).
-When you finish capturing it is important to click "Stop".
+# Log out and back in for group changes to take effect
+```
 
-- ## Tab 3 — Instructions
+### 🍎 macOS Installation
 
-## File naming convention
-The file name contains important information about the collected data.
-The format is: `YYYYMMDDTHHMMSS_{device}_s{bits}_i{interval}[_f{folds}]`
-Where `device` ∈ {`trng`, `bitb`, `pseudo`}. The `_f{folds}` suffix only appears for BitBabbler captures (f0 = RAW, f1–f4 = XOR folding levels).
+```bash
+# Install Python dependencies
+pip install -r requirements_streamlit.txt
 
-For example "20201011T142208_bitb_s2048_i1_f0": Collected on October 11, 2020 (20201011), at 14:22:08 (142208), BitBabbler device (bitb), sample of 2048 bits (s2048) every 1 second (i1), RAW mode (f0).
+# Install system dependencies
+brew install libusb
+```
 
-## Known Issues
+---
 
-### Linux Compatibility
-- **TrueRNG + BitBabbler combination**: Currently not supported on Linux systems. Use individual devices (TrueRNG only or BitBabbler only) instead.
+## 🚀 Usage Guide
 
-## License
+### 📊 Tab 1: Data Collection & Analysis
 
-MIT License
+#### 🔄 Collecting Data
+
+1. **Select your device**:
+   - **BitBabbler**: Choose fold level (0-4)
+     - `0` = RAW mode
+     - `1-4` = XOR folding levels
+   - **TrueRNG**: No fold options
+   - **Pseudo RNG**: Uses Python `secrets` module
+
+2. **Configure parameters**:
+   - **Sample Size**: Number of bits per sample (must be divisible by 8)
+   - **Sample Interval**: Time between samples in seconds
+
+3. **Start/Stop collection**:
+   - Click **"▶️ Start Collection"** to begin
+   - Click **"⏹️ Stop Collection"** to end
+   - Files are automatically saved to `data/raw/`
+
+#### 📈 Analyzing Data
+
+1. **Upload a file**:
+   - Select a previously generated `.bin` or `.csv` file
+   - Sample size and interval are auto-detected from filename
+
+2. **Generate analysis**:
+   - Click **"📊 Generate Analysis"**
+   - Excel file with Z-score chart is created
+   - Use **"📁 Open Output Folder"** to access results
+
+#### 🔗 Concatenating Files
+
+1. **Select multiple CSV files** with the same parameters
+2. **Set correct sample size and interval**
+3. **Click "🔗 Concatenate Files"** to merge data
+
+### 📈 Tab 2: Live Plot
+
+1. **Configure device and parameters** (same as data collection)
+2. **Click "▶️ Start Live Plot"** to begin real-time visualization
+3. **Monitor Z-score chart** updating in real-time
+4. **Click "⏹️ Stop Live Plot"** when finished
+
+### 📖 Tab 3: Instructions
+
+View this README content directly in the application.
+
+---
+
+## 📁 File Naming Convention
+
+Files follow a structured naming pattern that encodes important metadata:
+
+```
+YYYYMMDDTHHMMSS_{device}_s{bits}_i{interval}[_f{folds}]
+```
+
+### 📝 Format Breakdown
+
+| Component | Description | Example |
+|-----------|-------------|---------|
+| `YYYYMMDDTHHMMSS` | Timestamp | `20201011T142208` |
+| `{device}` | Device type | `trng`, `bitb`, `pseudo` |
+| `s{bits}` | Sample size in bits | `s2048` |
+| `i{interval}` | Interval in seconds | `i1` |
+| `_f{folds}` | BitBabbler fold level | `f0` (RAW), `f1-f4` (XOR) |
+
+### 💡 Example
+
+```
+20201011T142208_bitb_s2048_i1_f0
+```
+
+- **Date**: October 11, 2020
+- **Time**: 14:22:08
+- **Device**: BitBabbler
+- **Sample Size**: 2048 bits
+- **Interval**: 1 second
+- **Mode**: RAW (f0)
+
+---
+
+## ⚠️ Known Issues
+
+### 🐧 Linux Compatibility
+
+| Issue | Status | Workaround |
+|-------|--------|------------|
+| **TrueRNG + BitBabbler combination** | ❌ Not supported | Use individual devices instead |
+
+### 🔧 Troubleshooting
+
+#### BitBabbler Issues
+- **Device not detected**: Ensure proper USB connection and driver installation
+- **Permission denied**: Add user to `bit-babbler` group and restart session
+- **Driver issues**: Reinstall using Zadig (Windows) or udev rules (Linux)
+
+#### TrueRNG Issues
+- **Port not found**: Check USB connection and driver installation
+- **Permission denied**: Ensure user has access to serial ports
+
+---
+
+## 📄 License
+
+**MIT License**
 
 Copyright (c) 2025 Thiago Jung Mendaçolli
 
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+---
+
+**Made with ❤️ by [Thiago Jung](https://github.com/Thiagojm)**
+
+[⭐ Star this repo](https://github.com/Thiagojm/RngKitST) • [🐛 Report Issues](https://github.com/Thiagojm/RngKitST/issues) • [💬 Discussions](https://github.com/Thiagojm/RngKitST/discussions)
