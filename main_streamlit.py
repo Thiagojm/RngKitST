@@ -1,19 +1,16 @@
-# Default imports
-import time
-import secrets
+# Standard library imports
 import os
+import secrets
 import sys
-from datetime import datetime, timedelta
+import time
+from datetime import datetime
 
 # External imports
 import streamlit as st
 import plotly.graph_objects as go
-import plotly.express as px
 from bitstring import BitArray
 import serial
 from serial.tools import list_ports
-import pandas as pd
-import numpy as np
 
 # Internal imports
 
@@ -34,34 +31,102 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Initialize session state with defaults
+def init_session_state():
+    """Initialize all session state variables with default values"""
+    defaults = {
+        'collecting': False,
+        'live_plotting': False,
+        'zscore_data': [],
+        'index_data': [],
+        'current_values': {},
+        'collected_data': [],
+        'file_name': "",
+        'last_update_time': datetime.now(),
+        'sample_size': 2048,
+        'sample_interval': 1.0,
+        'csv_ones': []
+    }
+    
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
+
 # Initialize session state
-if 'collecting' not in st.session_state:
-    st.session_state.collecting = False
-if 'live_plotting' not in st.session_state:
-    st.session_state.live_plotting = False
-if 'zscore_data' not in st.session_state:
-    st.session_state.zscore_data = []
-if 'index_data' not in st.session_state:
-    st.session_state.index_data = []
-if 'current_values' not in st.session_state:
-    st.session_state.current_values = {}
-if 'collected_data' not in st.session_state:
-    st.session_state.collected_data = []
-if 'file_name' not in st.session_state:
-    st.session_state.file_name = ""
-if 'last_update_time' not in st.session_state:
-    st.session_state.last_update_time = datetime.now()
-if 'sample_size' not in st.session_state:
-    st.session_state.sample_size = 2048
-if 'sample_interval' not in st.session_state:
-    st.session_state.sample_interval = 1.0
-if 'csv_ones' not in st.session_state:
-    st.session_state.csv_ones = []
+init_session_state()
 
 # No seedd process management needed with bbpy
 
 # Ensure data directory exists
 DATA_DIR = svc_utils.ensure_data_dir()
+
+# Helper functions
+def create_values_dict(rng_type: str, xor_mode: int, sample_size: int, sample_interval: float, prefix: str = "") -> dict:
+    """Create a values dictionary for device operations"""
+    return {
+        f"{prefix}bit_ac": rng_type == "BitBabbler",
+        f"{prefix}true3_ac": rng_type in ["TrueRNG", "TrueRNG3"],
+        f"{prefix}true3_bit_ac": rng_type == "TrueRNG + BitBabbler",
+        f"{prefix}pseudo_rng_ac": rng_type == "PseudoRNG",
+        f"{prefix}combo": xor_mode,
+        f"{prefix}bit_count": sample_size,
+        f"{prefix}time_count": sample_interval,
+        # Also include the original keys for backward compatibility
+        "bit_ac": rng_type == "BitBabbler",
+        "true3_ac": rng_type in ["TrueRNG", "TrueRNG3"],
+        "true3_bit_ac": rng_type == "TrueRNG + BitBabbler",
+        "pseudo_rng_ac": rng_type == "PseudoRNG"
+    }
+
+def validate_device_detection(values: dict, rng_type: str) -> bool:
+    """Validate device detection and show appropriate error messages"""
+    if values.get("bit_ac", False) and not dev_bitb.detect():
+        return False
+    elif values.get("true3_ac", False) and not dev_trng.detect():
+        return False
+    elif values.get("true3_bit_ac", False) and not (dev_bitb.detect() and dev_trng.detect()):
+        return False
+    return True
+
+def show_device_error(rng_type: str):
+    """Show device-specific error messages"""
+    if rng_type == "BitBabbler":
+        st.error("❌ BitBabbler device check failed!")
+        st.error("**Troubleshooting steps:**")
+        st.error("1. Ensure BitBabbler is connected to USB")
+        st.error("2. Install Visual C++ Redistributable (vcredist_x64.exe)")
+        st.error("3. Install BitBabbler driver using Zadig (zadig-2.8.exe)")
+        st.error("4. Try running `python test_bitbabbler.py` to diagnose")
+    else:
+        st.error("❌ Device check failed. Please ensure your device is connected.")
+
+@st.cache_data
+def calculate_zscore(ones_list: list, sample_size: int) -> float:
+    """Calculate Z-score from ones count list"""
+    if not ones_list:
+        return 0.0
+    
+    index_number = len(ones_list)
+    sums_csv = sum(ones_list)
+    avrg_csv = sums_csv / index_number
+    return (avrg_csv - (sample_size / 2)) / (((sample_size / 4) ** 0.5) / (index_number ** 0.5))
+
+@st.cache_data
+def read_file_content(file_path: str) -> str:
+    """Cache file reading for better performance"""
+    try:
+        with open(file_path, "r", encoding="utf8") as f:
+            return f.read()
+    except FileNotFoundError:
+        return "File not found."
+
+@st.cache_data
+def process_uploaded_file(uploaded_file, data_dir: str) -> str:
+    """Cache uploaded file processing"""
+    file_path = os.path.join(data_dir, uploaded_file.name)
+    with open(file_path, "wb") as f:
+        f.write(uploaded_file.getbuffer())
+    return file_path
 
 def main():
     # Header
@@ -214,10 +279,8 @@ def render_data_collection_tab():
             with analysis_btn_col1:
                 if st.button("📊 Generate Analysis", use_container_width=True):
                     if svc_utils.is_valid_params(an_sample_size, an_sample_interval):
-                        # Save uploaded file to data folder
-                        file_path = os.path.join(DATA_DIR, uploaded_file.name)
-                        with open(file_path, "wb") as f:
-                            f.write(uploaded_file.getbuffer())
+                        # Save uploaded file to data folder using cached function
+                        file_path = process_uploaded_file(uploaded_file, DATA_DIR)
                         
                         try:
                             # Build dataframe depending on extension
@@ -275,12 +338,10 @@ def render_data_collection_tab():
             
             if st.button("🔗 Concatenate Files", use_container_width=True):
                 if len(concat_files) > 1:
-                    # Save uploaded files to data folder
+                    # Save uploaded files to data folder using cached function
                     file_paths = []
                     for file in concat_files:
-                        file_path = os.path.join(DATA_DIR, file.name)
-                        with open(file_path, "wb") as f:
-                            f.write(file.getbuffer())
+                        file_path = process_uploaded_file(file, DATA_DIR)
                         file_paths.append(file_path)
                     
                     try:
@@ -412,15 +473,13 @@ def render_live_plot_tab():
 def render_instructions_tab():
     st.header("📖 Instructions")
     
-    # Read and display README content
-    try:
-        with open("README.md", "r", encoding="utf8") as f:
-            instruction_text = f.read()
-        
+    # Read and display README content using cached function
+    instruction_text = read_file_content("README.md")
+    if instruction_text == "File not found.":
+        st.error("README.md file not found. Please ensure it exists in the project directory.")
+    else:
         # Convert markdown to display properly
         st.markdown(instruction_text)
-    except FileNotFoundError:
-        st.error("README.md file not found. Please ensure it exists in the project directory.")
 
 def collect_data_sample():
     """Collect a single data sample based on current settings"""
@@ -558,34 +617,11 @@ def start_data_collection(rng_type, xor_mode, sample_size, sample_interval):
         return
     
     # Create values dict for compatibility with existing functions
-    values = {
-        "bit_ac": rng_type == "BitBabbler",
-        "true3_ac": rng_type == "TrueRNG",
-        "true3_bit_ac": rng_type == "TrueRNG + BitBabbler",
-        "pseudo_rng_ac": rng_type == "PseudoRNG",
-        "ac_combo": xor_mode,
-        "ac_bit_count": sample_size,
-        "ac_time_count": sample_interval
-    }
+    values = create_values_dict(rng_type, xor_mode, sample_size, sample_interval, "ac_")
     
     # Device detection via adapters
-    ok = True
-    if values["bit_ac"] and not dev_bitb.detect():
-        ok = False
-    elif values["true3_ac"] and not dev_trng.detect():
-        ok = False
-    elif values["true3_bit_ac"] and not (dev_bitb.detect() and dev_trng.detect()):
-        ok = False
-    if not ok:
-        if rng_type == "BitBabbler":
-            st.error("❌ BitBabbler device check failed!")
-            st.error("**Troubleshooting steps:**")
-            st.error("1. Ensure BitBabbler is connected to USB")
-            st.error("2. Install Visual C++ Redistributable (vcredist_x64.exe)")
-            st.error("3. Install BitBabbler driver using Zadig (zadig-2.8.exe)")
-            st.error("4. Try running `python test_bitbabbler.py` to diagnose")
-        else:
-            st.error("❌ Device check failed. Please ensure your device is connected.")
+    if not validate_device_detection(values, rng_type):
+        show_device_error(rng_type)
         return
     
     # Generate filename using service
@@ -629,11 +665,11 @@ def collect_live_plot_sample():
         file_name = st.session_state.file_name
         
         try:
-            if values['bit_live']:
+            if values['live_bit_ac']:
                 collect_live_bitbabbler_sample(values, file_name)
-            elif values['true3_live']:
+            elif values['live_true3_ac']:
                 collect_live_trng3_sample(values, file_name)
-            elif values['pseudo_rng_live']:
+            elif values['live_pseudo_rng_ac']:
                 collect_live_pseudo_sample(values, file_name)
             
             st.session_state.last_update_time = current_time
@@ -668,14 +704,11 @@ def collect_live_bitbabbler_sample(values, file_name):
         storage_service.write_csv_count(num_ones_array, file_name)
         
         # Calculate Z-score
-        index_number = len(st.session_state.csv_ones)
-        sums_csv = sum(st.session_state.csv_ones)
-        avrg_csv = sums_csv / index_number
-        zscore_csv = (avrg_csv - (sample_value / 2)) / (((sample_value / 4) ** 0.5) / (index_number ** 0.5))
+        zscore_csv = calculate_zscore(st.session_state.csv_ones, sample_value)
         
         # Update session state
         st.session_state.zscore_data.append(zscore_csv)
-        st.session_state.index_data.append(index_number)
+        st.session_state.index_data.append(len(st.session_state.csv_ones))
         
     except Exception as e:
         print(f"Live BitBabbler error (bbpy): {e}")
@@ -698,14 +731,11 @@ def collect_live_trng3_sample(values, file_name):
         storage_service.write_csv_count(num_ones_array, file_name)
         
         # Calculate Z-score
-        index_number = len(st.session_state.csv_ones)
-        sums_csv = sum(st.session_state.csv_ones)
-        avrg_csv = sums_csv / index_number
-        zscore_csv = (avrg_csv - (sample_value / 2)) / (((sample_value / 4) ** 0.5) / (index_number ** 0.5))
+        zscore_csv = calculate_zscore(st.session_state.csv_ones, sample_value)
         
         # Update session state
         st.session_state.zscore_data.append(zscore_csv)
-        st.session_state.index_data.append(index_number)
+        st.session_state.index_data.append(len(st.session_state.csv_ones))
         
     except Exception as e:
         print(f"Live TrueRNG3 error: {e}")
@@ -728,14 +758,11 @@ def collect_live_pseudo_sample(values, file_name):
         storage_service.write_csv_count(num_ones_array, file_name)
         
         # Calculate Z-score
-        index_number = len(st.session_state.csv_ones)
-        sums_csv = sum(st.session_state.csv_ones)
-        avrg_csv = sums_csv / index_number
-        zscore_csv = (avrg_csv - (sample_value / 2)) / (((sample_value / 4) ** 0.5) / (index_number ** 0.5))
+        zscore_csv = calculate_zscore(st.session_state.csv_ones, sample_value)
         
         # Update session state
         st.session_state.zscore_data.append(zscore_csv)
-        st.session_state.index_data.append(index_number)
+        st.session_state.index_data.append(len(st.session_state.csv_ones))
         
     except Exception as e:
         print(f"Live Pseudo RNG error: {e}")
@@ -749,36 +776,15 @@ def start_live_plotting(rng_type, xor_mode, sample_size, sample_interval):
         return
     
     # Create values dict for compatibility
-    values = {
-        "bit_live": rng_type == "BitBabbler",
-        "true3_live": rng_type == "TrueRNG3",
-        "pseudo_rng_live": rng_type == "PseudoRNG",
-        "live_combo": xor_mode,
-        "live_bit_count": sample_size,
-        "live_time_count": sample_interval
-    }
+    values = create_values_dict(rng_type, xor_mode, sample_size, sample_interval, "live_")
     
-    # Check USB capabilities
     # Device detection via adapters
-    ok_live = True
-    if values["bit_live"] and not dev_bitb.detect():
-        ok_live = False
-    elif values["true3_live"] and not dev_trng.detect():
-        ok_live = False
-    if not ok_live:
-        if rng_type == "BitBabbler":
-            st.error("❌ BitBabbler device check failed!")
-            st.error("**Troubleshooting steps:**")
-            st.error("1. Ensure BitBabbler is connected to USB")
-            st.error("2. Install Visual C++ Redistributable (vcredist_x64.exe)")
-            st.error("3. Install BitBabbler driver using Zadig (zadig-2.8.exe)")
-            st.error("4. Try running `python test_bitbabbler.py` to diagnose")
-        else:
-            st.error("❌ Device check failed. Please ensure your device is connected.")
+    if not validate_device_detection(values, rng_type):
+        show_device_error(rng_type)
         return
     
     # Generate filename using service
-    device_suffix = "bitb" if values["bit_live"] else "trng" if values["true3_live"] else "pseudo"
+    device_suffix = "bitb" if values["live_bit_ac"] else "trng" if values["live_true3_ac"] else "pseudo"
     file_name = fn_service.format_capture_name(device_suffix, sample_size, sample_interval, xor_mode if device_suffix == "bitb" else None)
     file_name = os.path.join(DATA_DIR, file_name)
     

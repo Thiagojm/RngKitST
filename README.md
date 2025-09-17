@@ -1,6 +1,6 @@
 # RngKit 1.0
 by Thiago Jung  
-https://github.com/Thiagojm/RngKitST 
+https://github.com/Thiagojm/RngKitST   
 thiagojm1984@hotmail.com   
 Written in Python 3.13
 ---
