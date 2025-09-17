@@ -259,7 +259,6 @@ def render_data_collection_tab():
                 an_sample_size = st.number_input(
                     "Sample Size (bits):",
                     min_value=8,
-                    value=detected_sample,
                     step=8,
                     key="an_sample_size"
                 )
@@ -268,7 +267,6 @@ def render_data_collection_tab():
                 an_sample_interval = st.number_input(
                     "Sample Interval (seconds):",
                     min_value=1,
-                    value=detected_interval,
                     step=1,
                     key="an_sample_interval"
                 )
@@ -539,9 +537,20 @@ def collect_bitbabbler_sample(values, file_name):
             'sample_size': sample_value
         })
         
+    except OSError as e:
+        if e.errno == 19:  # No such device
+            st.error("❌ **BitBabbler device disconnected!**")
+            st.error("Please check that your BitBabbler is properly connected to USB and try again.")
+            st.session_state.collecting = False
+            st.rerun()
+        else:
+            st.error(f"❌ **BitBabbler device error:** {str(e)}")
+            st.session_state.collecting = False
+            st.rerun()
     except Exception as e:
-        print(f"BitBabbler collection error (bbpy): {e}")
+        st.error(f"❌ **BitBabbler collection error:** {str(e)}")
         st.session_state.collecting = False
+        st.rerun()
 
 def collect_trng3_sample(values, file_name):
     """Collect a single TrueRNG3 sample"""
@@ -554,6 +563,13 @@ def collect_trng3_sample(values, file_name):
         if temp[1].startswith("TrueRNG"):
             if rng_com_port is None:
                 rng_com_port = str(temp[0])
+    
+    if rng_com_port is None:
+        st.error("❌ **TrueRNG3 device not found!**")
+        st.error("Please check that your TrueRNG3 is properly connected to USB and try again.")
+        st.session_state.collecting = False
+        st.rerun()
+        return
     
     try:
         with open(file_name + '.bin', "ab") as bin_file:
@@ -579,9 +595,15 @@ def collect_trng3_sample(values, file_name):
             'sample_size': sample_value
         })
         
-    except Exception as e:
-        print(f"TrueRNG3 collection error: {e}")
+    except serial.SerialException as e:
+        st.error("❌ **TrueRNG3 device disconnected!**")
+        st.error("Please check that your TrueRNG3 is properly connected to USB and try again.")
         st.session_state.collecting = False
+        st.rerun()
+    except Exception as e:
+        st.error(f"❌ **TrueRNG3 collection error:** {str(e)}")
+        st.session_state.collecting = False
+        st.rerun()
 
 def collect_pseudo_sample(values, file_name):
     """Collect a single Pseudo RNG sample"""
@@ -710,9 +732,20 @@ def collect_live_bitbabbler_sample(values, file_name):
         st.session_state.zscore_data.append(zscore_csv)
         st.session_state.index_data.append(len(st.session_state.csv_ones))
         
+    except OSError as e:
+        if e.errno == 19:  # No such device
+            st.error("❌ **BitBabbler device disconnected!**")
+            st.error("Please check that your BitBabbler is properly connected to USB and try again.")
+            st.session_state.live_plotting = False
+            st.rerun()
+        else:
+            st.error(f"❌ **BitBabbler device error:** {str(e)}")
+            st.session_state.live_plotting = False
+            st.rerun()
     except Exception as e:
-        print(f"Live BitBabbler error (bbpy): {e}")
+        st.error(f"❌ **Live BitBabbler error:** {str(e)}")
         st.session_state.live_plotting = False
+        st.rerun()
 
 def collect_live_trng3_sample(values, file_name):
     """Collect a single live TrueRNG3 sample"""
@@ -737,9 +770,20 @@ def collect_live_trng3_sample(values, file_name):
         st.session_state.zscore_data.append(zscore_csv)
         st.session_state.index_data.append(len(st.session_state.csv_ones))
         
+    except OSError as e:
+        if e.errno == 19:  # No such device
+            st.error("❌ **TrueRNG3 device disconnected!**")
+            st.error("Please check that your TrueRNG3 is properly connected to USB and try again.")
+            st.session_state.live_plotting = False
+            st.rerun()
+        else:
+            st.error(f"❌ **TrueRNG3 device error:** {str(e)}")
+            st.session_state.live_plotting = False
+            st.rerun()
     except Exception as e:
-        print(f"Live TrueRNG3 error: {e}")
+        st.error(f"❌ **Live TrueRNG3 error:** {str(e)}")
         st.session_state.live_plotting = False
+        st.rerun()
 
 def collect_live_pseudo_sample(values, file_name):
     """Collect a single live Pseudo RNG sample"""
