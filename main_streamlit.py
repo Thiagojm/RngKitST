@@ -28,7 +28,7 @@ from rngkit.devices import pseudo as dev_pseudo  # type: ignore
 
 # Page configuration
 st.set_page_config(
-    page_title="RngKit 3.0 - Streamlit Version",
+    page_title="RngKit 1.0 - Streamlit Version",
     page_icon="🎲",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -65,7 +65,7 @@ DATA_DIR = svc_utils.ensure_data_dir()
 
 def main():
     # Header
-    st.title("🎲 RngKit 3.0 - Streamlit Version")
+    st.title("🎲 RngKit 1.0 - Streamlit Version")
     st.markdown("**by Thiago Jung** - thiagojm1984@hotmail.com")
     st.markdown("---")
     
@@ -194,7 +194,7 @@ def render_data_collection_tab():
                 an_sample_size = st.number_input(
                     "Sample Size (bits):",
                     min_value=8,
-                    value=st.session_state.get('an_sample_size', detected_sample),
+                    value=detected_sample,
                     step=8,
                     key="an_sample_size"
                 )
@@ -203,7 +203,7 @@ def render_data_collection_tab():
                 an_sample_interval = st.number_input(
                     "Sample Interval (seconds):",
                     min_value=1,
-                    value=st.session_state.get('an_sample_interval', detected_interval),
+                    value=detected_interval,
                     step=1,
                     key="an_sample_interval"
                 )
@@ -235,7 +235,11 @@ def render_data_collection_tab():
             
             with analysis_btn_col2:
                 if st.button("📁 Open Output Folder", use_container_width=True):
-                    os.startfile(DATA_DIR)
+                    if os.name == 'nt':  # Windows
+                        os.startfile(DATA_DIR)
+                    else:  # Linux/macOS
+                        import subprocess
+                        subprocess.run(['xdg-open', DATA_DIR])
         
         # File concatenation section
         st.subheader("🔗 Concatenate Multiple CSV Files")

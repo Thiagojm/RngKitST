@@ -6,20 +6,29 @@ from typing import Optional, Tuple
 from usb.backend import libusb1 as _libusb1
 
 _backend = None
-# Try common locations for libusb-1.0 on Windows: project root and bbpy/
-_candidates = [
-    os.path.join(os.getcwd(), "libusb-1.0.dll"),
-    os.path.join(os.path.dirname(__file__), "libusb-1.0.dll"),
-]
-for _path in _candidates:
-    if os.path.exists(_path):
-        try:
-            _backend = _libusb1.get_backend(find_library=lambda x: _path)
-            break
-        except Exception:
-            _backend = None
+# Cross-platform libusb-1.0 detection
+if os.name == 'nt':  # Windows
+    # Try common locations for libusb-1.0 on Windows: project root and bbpy/
+    _candidates = [
+        os.path.join(os.getcwd(), "libusb-1.0.dll"),
+        os.path.join(os.path.dirname(__file__), "libusb-1.0.dll"),
+    ]
+    for _path in _candidates:
+        if os.path.exists(_path):
+            try:
+                _backend = _libusb1.get_backend(find_library=lambda x: _path)
+                break
+            except Exception:
+                _backend = None
+else:  # Linux/macOS
+    # On Linux/macOS, use system libusb-1.0
+    try:
+        _backend = _libusb1.get_backend()
+    except Exception:
+        _backend = None
+
+# Fallback to system backend if platform-specific detection failed
 if _backend is None:
-    # fallback to system
     try:
         _backend = _libusb1.get_backend()
     except Exception:

@@ -29,6 +29,8 @@ Afterwards, the data can be analyzed against the expected value (50%) and visual
 
 ## Installation
 
+### Windows Installation
+
 1- Hardware Installation (Windows):
     The default installation path is: "C:\Users\Username\RngKit" - Where Username is the name of the windows current user.  
     1.1- TrueRNG and TrueRNGPro:  
@@ -38,7 +40,32 @@ Afterwards, the data can be analyzed against the expected value (50%) and visual
          Inside the 2-Installation\BitBabbler folder (inside the "C:\Users\Username\RngKit"), run vcredist_x64.exe and follow the installation guidelines.
          Insert your BitBabbler device into a USB port and run the zadig-2.8.exe file. Select your device and click "Install Driver".
          Wait for the process to finish and close the program.
-2- Python dependencies:
+
+### Linux Installation
+
+1- System Setup:
+    Run the automated setup script as root:
+    ```bash
+    sudo ./tools/installers/setup_rng_devices_linux_python.sh
+    ```
+    This script will:
+    - Set up udev rules for BitBabbler and TrueRNG devices
+    - Create required user groups
+    - Configure device permissions
+
+2- Manual Setup (if needed):
+    ```bash
+    # Install Python dependencies
+    pip3 install -r requirements_streamlit.txt
+    
+    # Install system dependencies
+    sudo apt-get install libusb-1.0-0-dev
+    
+    # Add user to bit-babbler group (for BitBabbler access)
+    sudo usermod -aG bit-babbler $USER
+    ```
+
+### Python Dependencies (All Platforms)
     Use the provided requirements file: `pip install -r requirements_streamlit.txt`
 
 ## Usage
@@ -82,6 +109,11 @@ The format is: `YYYYMMDDTHHMMSS_{device}_s{bits}_i{interval}[_f{folds}]`
 Where `device` ∈ {`trng`, `bitb`, `pseudo`}. The `_f{folds}` suffix only appears for BitBabbler captures (f0 = RAW, f1–f4 = XOR folding levels).
 
 For example "20201011T142208_bitb_s2048_i1_f0": Collected on October 11, 2020 (20201011), at 14:22:08 (142208), BitBabbler device (bitb), sample of 2048 bits (s2048) every 1 second (i1), RAW mode (f0).
+
+## Known Issues
+
+### Linux Compatibility
+- **TrueRNG + BitBabbler combination**: Currently not supported on Linux systems. Use individual devices (TrueRNG only or BitBabbler only) instead.
 
 ## License
 
