@@ -82,12 +82,12 @@
 #### Hardware Setup
 
 1. **TrueRNG/TrueRNGPro**:
-   - Navigate to `2-Installation/TrueRng/` folder
+   - Navigate to `tools/installers/TrueRng/` folder
    - Right-click `TrueRNG.inf` or `TrueRNGpro.inf`
    - Select "Install" and follow the prompts
 
 2. **BitBabbler**:
-   - Run `vcredist_x64.exe` from `2-Installation/BitBabbler/`
+   - Run `vcredist_x64.exe` from `tools/installers/BitBabbler/`
    - Insert BitBabbler device into USB port
    - Run `zadig-2.8.exe` and install driver for your device
 
