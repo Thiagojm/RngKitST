@@ -10,7 +10,29 @@ _cached: Optional[object] = None
 
 def detect() -> bool:
     """Detect if BitBabbler device is available and accessible."""
-    return _get() is not None
+    try:
+        return _get() is not None
+    except Exception:
+        return False
+
+
+def get_detection_error() -> str:
+    """Get detailed error message for BitBabbler detection failure."""
+    if _BB is None:
+        return "BitBabbler module not available. Please ensure bbpy is properly installed."
+    
+    try:
+        _BB.open()
+        return "Device detection succeeded"
+    except RuntimeError as e:
+        if "not found" in str(e).lower():
+            return "BitBabbler device not found. Please check USB connection and driver installation."
+        elif "initialize" in str(e).lower():
+            return "BitBabbler device found but failed to initialize. Try reconnecting the device."
+        else:
+            return f"BitBabbler error: {str(e)}"
+    except Exception as e:
+        return f"Unexpected error during BitBabbler detection: {str(e)}"
 
 
 def _get() -> Optional[object]:

@@ -17,7 +17,7 @@ def write_csv_count(count: int, filename_stem: str) -> None:
         count: Number of '1' bits counted
         filename_stem: Base filename without extension
     """
-    now = datetime.now().strftime("%Y%m%dT%H:%M:%S")
+    now = datetime.now().strftime("%Y%m%dT%H%M%S")
     path = f"{filename_stem}.csv"
     try:
         with open(path, 'a', newline='') as f:
@@ -74,7 +74,7 @@ def read_csv_counts(file_path: str) -> pd.DataFrame:
     """
     try:
         df = pd.read_csv(file_path, header=None, names=['time', 'ones'])
-        df['time'] = pd.to_datetime(df['time']).apply(lambda x: x.strftime('%H:%M:%S'))
+        df['time'] = pd.to_datetime(df['time']).apply(lambda x: x.strftime('%H%M%S'))
         return df
     except (OSError, IOError, pd.errors.EmptyDataError) as e:
         raise RuntimeError(f"Failed to read CSV file: {e}")

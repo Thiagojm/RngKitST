@@ -15,7 +15,7 @@ def test_filenames_roundtrip():
 def test_storage_zscore(tmp_path):
     # create a small csv
     p = tmp_path / "sample.csv"
-    p.write_text("20240101T00:00:00,100\n20240101T00:00:01,110\n")
+    p.write_text("20240101T000000,100\n20240101T000001,110\n")
     df = st.read_csv_counts(str(p))
     out = st.add_zscore(df.copy(), 200)
     assert "z_test" in out.columns

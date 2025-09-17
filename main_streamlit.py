@@ -1,5 +1,6 @@
 # Standard library imports
 import os
+import platform
 import secrets
 import sys
 import time
@@ -66,7 +67,6 @@ def create_values_dict(rng_type: str, xor_mode: int, sample_size: int, sample_in
     return {
         f"{prefix}bit_ac": rng_type == "BitBabbler",
         f"{prefix}true3_ac": rng_type in ["TrueRNG", "TrueRNG3"],
-        f"{prefix}true3_bit_ac": rng_type == "TrueRNG + BitBabbler",
         f"{prefix}pseudo_rng_ac": rng_type == "PseudoRNG",
         f"{prefix}combo": xor_mode,
         f"{prefix}bit_count": sample_size,
@@ -74,18 +74,100 @@ def create_values_dict(rng_type: str, xor_mode: int, sample_size: int, sample_in
         # Also include the original keys for backward compatibility
         "bit_ac": rng_type == "BitBabbler",
         "true3_ac": rng_type in ["TrueRNG", "TrueRNG3"],
-        "true3_bit_ac": rng_type == "TrueRNG + BitBabbler",
         "pseudo_rng_ac": rng_type == "PseudoRNG"
     }
+
+def is_device_not_found_error(error: Exception) -> bool:
+    """Check if an error indicates device not found, cross-platform"""
+    if isinstance(error, OSError):
+        # Linux/Unix: errno 19 = ENODEV (No such device)
+        # Windows: errno 2 = ENOENT (No such file or directory)
+        # Windows: errno 3 = ESRCH (No such process)
+        if hasattr(error, 'errno'):
+            if platform.system().lower() == "windows":
+                return error.errno in [2, 3]  # ENOENT, ESRCH on Windows
+            else:
+                return error.errno == 19  # ENODEV on Linux/Unix
+    
+    # Check error message content for common device not found patterns
+    error_msg = str(error).lower()
+    device_not_found_patterns = [
+        "no such device",
+        "device not found",
+        "no such file or directory",
+        "permission denied",
+        "access denied",
+        "device or resource busy"
+    ]
+    return any(pattern in error_msg for pattern in device_not_found_patterns)
+
+
+def get_platform_specific_troubleshooting(device_type: str) -> list:
+    """Get platform-specific troubleshooting steps for device errors"""
+    system = platform.system().lower()
+    
+    if device_type == "BitBabbler":
+        if system == "windows":
+            return [
+                "1. Ensure BitBabbler is connected to USB",
+                "2. Install Visual C++ Redistributable (vcredist_x64.exe)",
+                "3. Install BitBabbler driver using Zadig (zadig-2.8.exe)",
+                "4. Try running `python test_bitbabbler.py` to diagnose"
+            ]
+        elif system == "linux":
+            return [
+                "1. Ensure BitBabbler is connected to USB",
+                "2. Install libusb-1.0 development package: `sudo apt-get install libusb-1.0-0-dev`",
+                "3. Add user to bit-babbler group: `sudo usermod -aG bit-babbler $USER`",
+                "4. Run setup script: `sudo ./tools/installers/setup_rng_devices_linux_python.sh`",
+                "5. Log out and back in for group changes to take effect"
+            ]
+        else:  # macOS or other
+            return [
+                "1. Ensure BitBabbler is connected to USB",
+                "2. Install libusb-1.0: `brew install libusb`",
+                "3. Check device permissions and USB access"
+            ]
+    elif device_type == "TrueRNG":
+        if system == "windows":
+            return [
+                "1. Ensure TrueRNG is connected to USB",
+                "2. Install TrueRNG driver from tools/installers/TrueRng/",
+                "3. Check Windows Device Manager for the device"
+            ]
+        elif system == "linux":
+            return [
+                "1. Ensure TrueRNG is connected to USB",
+                "2. Add user to dialout group: `sudo usermod -aG dialout $USER`",
+                "3. Check device permissions: `ls -l /dev/ttyUSB*` or `/dev/ttyACM*`",
+                "4. Run setup script: `sudo ./tools/installers/setup_rng_devices_linux_python.sh`"
+            ]
+        else:  # macOS or other
+            return [
+                "1. Ensure TrueRNG is connected to USB",
+                "2. Check device permissions and serial port access"
+            ]
+    
+    return ["1. Ensure device is properly connected to USB"]
+
 
 def validate_device_detection(values: dict, rng_type: str) -> bool:
     """Validate device detection and show appropriate error messages"""
     if values.get("bit_ac", False) and not dev_bitb.detect():
+        # Show detailed error message for BitBabbler
+        error_msg = dev_bitb.get_detection_error()
+        st.error(f"❌ **BitBabbler Device Error:** {error_msg}")
+        st.error("**Troubleshooting steps:**")
+        for step in get_platform_specific_troubleshooting("BitBabbler"):
+            st.error(step)
         return False
     elif values.get("true3_ac", False) and not dev_trng.detect():
+        st.error("❌ **TrueRNG3 Device Error:** Device not detected")
+        st.error("**Troubleshooting steps:**")
+        for step in get_platform_specific_troubleshooting("TrueRNG"):
+            st.error(step)
         return False
-    elif values.get("true3_bit_ac", False) and not (dev_bitb.detect() and dev_trng.detect()):
-        return False
+    # Removed true3_bit_ac logic as combined option is no longer supported
     return True
 
 def show_device_error(rng_type: str):
@@ -158,12 +240,27 @@ def render_data_collection_tab():
         # RNG Device Selection
         rng_type = st.radio(
             "Choose RNG Device:",
-            ["BitBabbler", "TrueRNG", "TrueRNG + BitBabbler", "PseudoRNG"],
+            ["BitBabbler", "TrueRNG", "PseudoRNG"],
             index=0
         )
         
+        # Device Status Indicator
+        if rng_type == "BitBabbler":
+            if dev_bitb.detect():
+                st.success("✅ BitBabbler device detected and ready")
+            else:
+                error_msg = dev_bitb.get_detection_error()
+                st.error(f"❌ BitBabbler device not available: {error_msg}")
+        elif rng_type in ["TrueRNG", "TrueRNG3"]:
+            if dev_trng.detect():
+                st.success("✅ TrueRNG3 device detected and ready")
+            else:
+                st.error("❌ TrueRNG3 device not detected")
+        elif rng_type == "PseudoRNG":
+            st.info("ℹ️ PseudoRNG (software-based) - always available")
+        
         # Device-specific options
-        if rng_type in ["BitBabbler", "TrueRNG + BitBabbler"]:
+        if rng_type == "BitBabbler":
             xor_mode = st.selectbox(
                 "RAW(0)/XOR (1,2,3,4):",
                 options=[0, 1, 2, 3, 4],
@@ -369,6 +466,21 @@ def render_live_plot_tab():
             key="live_rng"
         )
         
+        # Device Status Indicator for Live Plot
+        if live_rng_type == "BitBabbler":
+            if dev_bitb.detect():
+                st.success("✅ BitBabbler device detected and ready")
+            else:
+                error_msg = dev_bitb.get_detection_error()
+                st.error(f"❌ BitBabbler device not available: {error_msg}")
+        elif live_rng_type == "TrueRNG3":
+            if dev_trng.detect():
+                st.success("✅ TrueRNG3 device detected and ready")
+            else:
+                st.error("❌ TrueRNG3 device not detected")
+        elif live_rng_type == "PseudoRNG":
+            st.info("ℹ️ PseudoRNG (software-based) - always available")
+        
         # Device-specific options
         if live_rng_type == "BitBabbler":
             live_xor_mode = st.selectbox(
@@ -517,14 +629,20 @@ def collect_bitbabbler_sample(values, file_name):
             if chunk:
                 bin_file.write(chunk)
             else:
-                print("No data received from BitBabbler (bbpy)")
+                st.error("❌ **No data received from BitBabbler**")
+                st.error("Device may be disconnected or not responding properly.")
+                st.session_state.collecting = False
+                st.rerun()
                 return
         
         bin_hex = BitArray(chunk)
         bin_ascii = bin_hex.bin
         
         if not bin_ascii:
-            print("Empty data from BitBabbler (bbpy)")
+            st.error("❌ **Empty data from BitBabbler**")
+            st.error("Device is connected but not generating valid data.")
+            st.session_state.collecting = False
+            st.rerun()
             return
         
         num_ones_array = bin_ascii.count('1')
@@ -537,18 +655,32 @@ def collect_bitbabbler_sample(values, file_name):
             'sample_size': sample_value
         })
         
+    except RuntimeError as e:
+        if "not found" in str(e).lower():
+            st.error("❌ **BitBabbler device not found!**")
+            st.error("Please check that your BitBabbler is properly connected to USB.")
+            st.error("**Troubleshooting:** Try reconnecting the device or check driver installation.")
+        elif "initialize" in str(e).lower():
+            st.error("❌ **BitBabbler initialization failed!**")
+            st.error("Device found but failed to initialize. Try reconnecting the device.")
+        else:
+            st.error(f"❌ **BitBabbler error:** {str(e)}")
+        st.session_state.collecting = False
+        st.rerun()
     except OSError as e:
-        if e.errno == 19:  # No such device
+        if is_device_not_found_error(e):
             st.error("❌ **BitBabbler device disconnected!**")
             st.error("Please check that your BitBabbler is properly connected to USB and try again.")
-            st.session_state.collecting = False
-            st.rerun()
+            st.error("**Troubleshooting steps:**")
+            for step in get_platform_specific_troubleshooting("BitBabbler"):
+                st.error(step)
         else:
             st.error(f"❌ **BitBabbler device error:** {str(e)}")
-            st.session_state.collecting = False
-            st.rerun()
+        st.session_state.collecting = False
+        st.rerun()
     except Exception as e:
         st.error(f"❌ **BitBabbler collection error:** {str(e)}")
+        st.error("This may indicate a device connection or driver issue.")
         st.session_state.collecting = False
         st.rerun()
 
@@ -647,7 +779,7 @@ def start_data_collection(rng_type, xor_mode, sample_size, sample_interval):
         return
     
     # Generate filename using service
-    device_suffix = "bitb" if (values["bit_ac"] or values["true3_bit_ac"]) else "trng" if values["true3_ac"] else "pseudo"
+    device_suffix = "bitb" if values["bit_ac"] else "trng" if values["true3_ac"] else "pseudo"
     file_name = fn_service.format_capture_name(device_suffix, sample_size, sample_interval, xor_mode if device_suffix == "bitb" else None)
     file_name = os.path.join(DATA_DIR, file_name)
     
@@ -711,14 +843,20 @@ def collect_live_bitbabbler_sample(values, file_name):
             if chunk:
                 bin_file.write(chunk)
             else:
-                print("No data received from BitBabbler (bbpy)")
+                st.error("❌ **No data received from BitBabbler**")
+                st.error("Device may be disconnected or not responding properly.")
+                st.session_state.live_plotting = False
+                st.rerun()
                 return
         
         bin_hex = BitArray(chunk)
         bin_ascii = bin_hex.bin
         
         if not bin_ascii:
-            print("Empty data from BitBabbler (bbpy)")
+            st.error("❌ **Empty data from BitBabbler**")
+            st.error("Device is connected but not generating valid data.")
+            st.session_state.live_plotting = False
+            st.rerun()
             return
         
         num_ones_array = bin_ascii.count('1')
@@ -732,18 +870,32 @@ def collect_live_bitbabbler_sample(values, file_name):
         st.session_state.zscore_data.append(zscore_csv)
         st.session_state.index_data.append(len(st.session_state.csv_ones))
         
+    except RuntimeError as e:
+        if "not found" in str(e).lower():
+            st.error("❌ **BitBabbler device not found!**")
+            st.error("Please check that your BitBabbler is properly connected to USB.")
+            st.error("**Troubleshooting:** Try reconnecting the device or check driver installation.")
+        elif "initialize" in str(e).lower():
+            st.error("❌ **BitBabbler initialization failed!**")
+            st.error("Device found but failed to initialize. Try reconnecting the device.")
+        else:
+            st.error(f"❌ **BitBabbler error:** {str(e)}")
+        st.session_state.live_plotting = False
+        st.rerun()
     except OSError as e:
-        if e.errno == 19:  # No such device
+        if is_device_not_found_error(e):
             st.error("❌ **BitBabbler device disconnected!**")
             st.error("Please check that your BitBabbler is properly connected to USB and try again.")
-            st.session_state.live_plotting = False
-            st.rerun()
+            st.error("**Troubleshooting steps:**")
+            for step in get_platform_specific_troubleshooting("BitBabbler"):
+                st.error(step)
         else:
             st.error(f"❌ **BitBabbler device error:** {str(e)}")
-            st.session_state.live_plotting = False
-            st.rerun()
+        st.session_state.live_plotting = False
+        st.rerun()
     except Exception as e:
         st.error(f"❌ **Live BitBabbler error:** {str(e)}")
+        st.error("This may indicate a device connection or driver issue.")
         st.session_state.live_plotting = False
         st.rerun()
 
@@ -771,9 +923,12 @@ def collect_live_trng3_sample(values, file_name):
         st.session_state.index_data.append(len(st.session_state.csv_ones))
         
     except OSError as e:
-        if e.errno == 19:  # No such device
+        if is_device_not_found_error(e):
             st.error("❌ **TrueRNG3 device disconnected!**")
             st.error("Please check that your TrueRNG3 is properly connected to USB and try again.")
+            st.error("**Troubleshooting steps:**")
+            for step in get_platform_specific_troubleshooting("TrueRNG"):
+                st.error(step)
             st.session_state.live_plotting = False
             st.rerun()
         else:

@@ -3,3 +3,8 @@ output/
 venv/
 .venv/
 tests/__pycache__
+
+# Data files
+*.csv
+*.bin
+*.xlsx
