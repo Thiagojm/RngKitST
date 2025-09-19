@@ -127,12 +127,21 @@ else
     echo "   Install with: sudo apt-get install libusb-1.0-0-dev"
 fi
 
-# Check for FTDI driver
+# Check for FTDI driver conflict with BitBabbler
 if lsmod | grep -q ftdi_sio; then
-  echo "✅ FTDI serial driver is loaded"
+  echo "⚠️  FTDI serial driver is loaded - this may conflict with BitBabbler"
+  echo "   BitBabbler requires direct USB access, not serial interface"
+  echo "   Attempting to unload FTDI serial driver for BitBabbler compatibility..."
+  if modprobe -r ftdi_sio; then
+    echo "✅ FTDI serial driver unloaded successfully"
+    echo "   BitBabbler should now work with direct USB access"
+  else
+    echo "❌ Failed to unload FTDI serial driver"
+    echo "   You may need to manually run: sudo modprobe -r ftdi_sio"
+    echo "   Or blacklist the driver: echo 'blacklist ftdi_sio' | sudo tee /etc/modprobe.d/blacklist-bitbabbler.conf"
+  fi
 else
-  echo "⚠️  FTDI driver not currently loaded"
-  echo "   You can load it now with: sudo modprobe ftdi_sio"
+  echo "✅ FTDI serial driver not loaded - BitBabbler can use direct USB access"
 fi
 
 
