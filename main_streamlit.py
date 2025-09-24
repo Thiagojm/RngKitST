@@ -4,13 +4,13 @@ import platform
 import secrets
 import sys
 import time
-from datetime import datetime
-from typing import Tuple
+from contextlib import contextmanager
+from datetime import datetime, timedelta
+from typing import Dict, List, Tuple
 
 # External imports
 import streamlit as st
 import plotly.graph_objects as go
-from bitstring import BitArray
 import serial
 from serial.tools import list_ports
 
@@ -48,8 +48,16 @@ def init_session_state():
         'sample_size': 2048,
         'sample_interval': 1.0,
         'csv_ones': [],
+        'csv_sum': 0,
+        'csv_count': 0,
         # Cached device detection invalidation counter
-        'device_refresh_counter': 0
+        'device_refresh_counter': 0,
+        # Performance profiling
+        'perf_enabled': True,
+        'perf_samples': {},
+        # Scheduled sampling times
+        'next_sample_time': None,
+        'next_live_sample_time': None
     }
     
     for key, value in defaults.items():
@@ -65,7 +73,101 @@ init_session_state()
 DATA_DIR = svc_utils.ensure_data_dir()
 
 # Helper functions
-@st.cache_data(ttl=10)
+LIVE_MAX_POINTS = 200  # cap points rendered on live chart
+COLLECT_MAX_HISTORY = 200  # cap collection status history kept in memory
+PERF_MAX_SAMPLES = 200  # cap stored perf samples per span
+JITTER_TOLERANCE_SEC = 0.25  # scheduling tolerance to avoid missed samples
+
+def record_perf_sample(span_name: str, duration_seconds: float) -> None:
+    """Record a performance sample for a named span.
+
+    Parameters
+    ----------
+    span_name: str
+        Logical name of the measured span.
+    duration_seconds: float
+        Elapsed time in seconds.
+    """
+    if not st.session_state.get('perf_enabled', True):
+        return
+    samples: Dict[str, List[float]] = st.session_state.get('perf_samples', {})
+    arr = samples.get(span_name, [])
+    arr.append(duration_seconds)
+    if len(arr) > PERF_MAX_SAMPLES:
+        arr = arr[-PERF_MAX_SAMPLES:]
+    samples[span_name] = arr
+    st.session_state['perf_samples'] = samples
+
+
+@contextmanager
+def perf_timer(span_name: str):
+    """Context manager to measure and record wall time for a code block.
+
+    Parameters
+    ----------
+    span_name: str
+        Logical name of the measured span.
+    """
+    if not st.session_state.get('perf_enabled', True):
+        yield
+        return
+    start = time.perf_counter()
+    try:
+        yield
+    finally:
+        end = time.perf_counter()
+        record_perf_sample(span_name, end - start)
+
+
+def render_perf_panel(max_rows: int = 6) -> None:
+    """Render a small performance panel in the sidebar with recent timings.
+
+    Parameters
+    ----------
+    max_rows: int
+        Maximum number of spans to show, sorted by worst-case time.
+    """
+    samples: Dict[str, List[float]] = st.session_state.get('perf_samples', {})
+    if not samples:
+        return
+    with st.sidebar.expander("🕒 Performance (recent)", expanded=False):
+        # Build simple rows sorted by max duration desc
+        rows = []
+        for name, arr in samples.items():
+            if not arr:
+                continue
+            count = len(arr)
+            total = sum(arr)
+            avg = total / count
+            worst = max(arr)
+            arr_sorted = sorted(arr)
+            p95 = arr_sorted[int(0.95 * (count - 1))] if count > 1 else worst
+            rows.append((name, avg, p95, worst, count))
+        rows.sort(key=lambda r: r[3], reverse=True)
+        if not rows:
+            st.write("No perf samples yet.")
+            return
+        rows = rows[:max_rows]
+        for name, avg, p95, worst, count in rows:
+            st.write(f"{name}: avg {avg*1000:.1f} ms | p95 {p95*1000:.1f} ms | max {worst*1000:.1f} ms (n={count})")
+
+
+def count_ones_in_bytes(data: bytes) -> int:
+    """Count the number of 1-bits in a bytes object efficiently.
+
+    Parameters
+    ----------
+    data: bytes
+        Bytes buffer whose bits will be counted.
+
+    Returns
+    -------
+    int
+        Number of 1-bits across all bytes.
+    """
+    return sum(b.bit_count() for b in data)
+
+@st.cache_data
 def detect_bitbabbler_cached(refresh_counter: int) -> Tuple[bool, str]:
     """Return BitBabbler detection status using cache.
 
@@ -87,7 +189,7 @@ def detect_bitbabbler_cached(refresh_counter: int) -> Tuple[bool, str]:
         return False, str(exc)
 
 
-@st.cache_data(ttl=10)
+@st.cache_data
 def detect_trng_cached(refresh_counter: int) -> bool:
     """Return TrueRNG/TrueRNG3 detection status using cache.
 
@@ -266,11 +368,33 @@ def calculate_zscore(ones_list: list, sample_size: int) -> float:
     """Calculate Z-score from ones count list"""
     if not ones_list:
         return 0.0
-    
     index_number = len(ones_list)
     sums_csv = sum(ones_list)
     avrg_csv = sums_csv / index_number
     return (avrg_csv - (sample_size / 2)) / (((sample_size / 4) ** 0.5) / (index_number ** 0.5))
+
+
+def calculate_zscore_streaming(total_ones: int, num_samples: int, sample_size: int) -> float:
+    """Calculate Z-score using streaming totals.
+
+    Parameters
+    ----------
+    total_ones: int
+        Sum of ones across all samples.
+    num_samples: int
+        Number of samples accumulated.
+    sample_size: int
+        Number of bits per sample.
+
+    Returns
+    -------
+    float
+        Z-score computed from streaming aggregates.
+    """
+    if num_samples <= 0:
+        return 0.0
+    avrg_csv = total_ones / num_samples
+    return (avrg_csv - (sample_size / 2)) / (((sample_size / 4) ** 0.5) / (num_samples ** 0.5))
 
 @st.cache_data
 def read_file_content(file_path: str) -> str:
@@ -294,6 +418,8 @@ def main():
     st.title("🎲 RngKit 1.0 - Streamlit Version")
     st.markdown("**by Thiago Jung** - thiagojm1984@hotmail.com")
     st.markdown("---")
+    # Perf panel
+    render_perf_panel()
     
     # Create tabs
     tab1, tab2, tab3 = st.tabs(["📊 Data Collection & Analysis", "📈 Live Plot", "📖 Instructions"])
@@ -392,7 +518,8 @@ def render_data_collection_tab():
             def update_collection_status():
                 if st.session_state.collecting:
                     # Generate new data
-                    collect_data_sample()
+                    with perf_timer("collect_data_sample"):
+                        collect_data_sample()
                     
                     st.success("🟢 Collecting")
                     # Show collection statistics
@@ -405,7 +532,6 @@ def render_data_collection_tab():
                     st.info("🟡 Idle")
             
             update_collection_status()
-    
     with col2:
         st.subheader("📈 Data Analysis")
         
@@ -629,10 +755,12 @@ def render_live_plot_tab():
         def update_live_chart():
             if st.session_state.live_plotting:
                 # Generate new data
-                collect_live_plot_sample()
+                with perf_timer("collect_live_plot_sample"):
+                    collect_live_plot_sample()
             
             if st.session_state.zscore_data and st.session_state.index_data:
-                fig = go.Figure()
+                with perf_timer("plot_prepare"):
+                    fig = go.Figure()
                 fig.add_trace(go.Scatter(
                     x=st.session_state.index_data,
                     y=st.session_state.zscore_data,
@@ -641,15 +769,19 @@ def render_live_plot_tab():
                     line=dict(color='orange', width=2)
                 ))
                 
-                fig.update_layout(
-                    title="Live Z-Score Plot",
-                    xaxis_title=f"Number of samples (one sample every {live_sample_interval} second(s))",
-                    yaxis_title=f"Z-Score - Sample Size = {live_sample_size} bits",
-                    height=400,
-                    showlegend=False
-                )
+                with perf_timer("plot_layout"):
+                    fig.update_layout(
+                        title="Live Z-Score Plot",
+                        xaxis_title=f"Number of samples (one sample every {live_sample_interval} second(s))",
+                        yaxis_title=f"Z-Score - Sample Size = {live_sample_size} bits",
+                        height=400,
+                        showlegend=False,
+                        uirevision=True,
+                        transition_duration=0
+                    )
                 
-                st.plotly_chart(fig, use_container_width=True)
+                with perf_timer("plot_render"):
+                    st.plotly_chart(fig, use_container_width=True)
                 
                 # Show current statistics
                 if st.session_state.zscore_data:
@@ -689,14 +821,16 @@ def collect_data_sample():
     if not st.session_state.collecting or not st.session_state.current_values:
         return
     
-    current_time = datetime.now()
-    time_since_last = (current_time - st.session_state.last_update_time).total_seconds()
+    now = datetime.now()
+    if st.session_state.get('next_sample_time') is None:
+        st.session_state['next_sample_time'] = now
     
-    # Only collect if enough time has passed
-    if time_since_last >= st.session_state.sample_interval:
-        values = st.session_state.current_values
-        file_name = st.session_state.file_name
-        
+    values = st.session_state.current_values
+    file_name = st.session_state.file_name
+    
+    # Catch up loop to avoid missing samples due to jitter
+    loops = 0
+    while (now + timedelta(seconds=JITTER_TOLERANCE_SEC)) >= st.session_state['next_sample_time'] and loops < 3:
         try:
             if values["bit_ac"]:
                 collect_bitbabbler_sample(values, file_name)
@@ -705,10 +839,13 @@ def collect_data_sample():
             elif values['pseudo_rng_ac']:
                 collect_pseudo_sample(values, file_name)
             
-            st.session_state.last_update_time = current_time
+            st.session_state.last_update_time = now
+            st.session_state['next_sample_time'] = st.session_state['next_sample_time'] + timedelta(seconds=st.session_state.sample_interval)
+            loops += 1
         except Exception as e:
             print(f"Data collection error: {e}")
             st.session_state.collecting = False
+            break
 
 def collect_bitbabbler_sample(values, file_name):
     """Collect a single BitBabbler sample"""
@@ -718,9 +855,11 @@ def collect_bitbabbler_sample(values, file_name):
     
     try:
         with open(file_name + '.bin', "ab+") as bin_file:
-            chunk = dev_bitb.read_bytes(sample_bytes, folds)
+            with perf_timer("bitb.read_bytes"):
+                chunk = dev_bitb.read_bytes(sample_bytes, folds)
             if chunk:
-                bin_file.write(chunk)
+                with perf_timer("file.write_bin"):
+                    bin_file.write(chunk)
             else:
                 st.error("❌ **No data received from BitBabbler**")
                 st.error("Device may be disconnected or not responding properly.")
@@ -728,25 +867,19 @@ def collect_bitbabbler_sample(values, file_name):
                 st.rerun()
                 return
         
-        bin_hex = BitArray(chunk)
-        bin_ascii = bin_hex.bin
+        # Count ones quickly without BitArray
+        num_ones_array = count_ones_in_bytes(chunk)
+        with perf_timer("csv.write_count"):
+            storage_service.write_csv_count(num_ones_array, file_name)
         
-        if not bin_ascii:
-            st.error("❌ **Empty data from BitBabbler**")
-            st.error("Device is connected but not generating valid data.")
-            st.session_state.collecting = False
-            st.rerun()
-            return
-        
-        num_ones_array = bin_ascii.count('1')
-        storage_service.write_csv_count(num_ones_array, file_name)
-        
-        # Update session state
+        # Update session state (capped)
         st.session_state.collected_data.append({
             'timestamp': time.time(),
             'ones': num_ones_array,
             'sample_size': sample_value
         })
+        if len(st.session_state.collected_data) > COLLECT_MAX_HISTORY:
+            st.session_state.collected_data = st.session_state.collected_data[-COLLECT_MAX_HISTORY:]
         
     except RuntimeError as e:
         if "not found" in str(e).lower():
@@ -798,27 +931,35 @@ def collect_trng3_sample(values, file_name):
     
     try:
         with open(file_name + '.bin', "ab") as bin_file:
-            ser = serial.Serial(port=rng_com_port, timeout=10)
+            with perf_timer("serial.open"):
+                ser = serial.Serial(port=rng_com_port, timeout=10)
             if not ser.isOpen():
-                ser.open()
-            ser.setDTR(True)
-            ser.flushInput()
+                with perf_timer("serial.ensure_open"):
+                    ser.open()
+            with perf_timer("serial.dtr_flush"):
+                ser.setDTR(True)
+                ser.flushInput()
             
-            x = ser.read(blocksize)
-            bin_file.write(x)
-            ser.close()
+            with perf_timer("serial.read"):
+                x = ser.read(blocksize)
+            with perf_timer("file.write_bin"):
+                bin_file.write(x)
+            with perf_timer("serial.close"):
+                ser.close()
         
-        bin_hex = BitArray(x)
-        bin_ascii = bin_hex.bin
-        num_ones_array = bin_ascii.count('1')
-        storage_service.write_csv_count(num_ones_array, file_name)
+        # Count ones quickly without BitArray
+        num_ones_array = count_ones_in_bytes(x)
+        with perf_timer("csv.write_count"):
+            storage_service.write_csv_count(num_ones_array, file_name)
         
-        # Update session state
+        # Update session state (capped)
         st.session_state.collected_data.append({
             'timestamp': time.time(),
             'ones': num_ones_array,
             'sample_size': sample_value
         })
+        if len(st.session_state.collected_data) > COLLECT_MAX_HISTORY:
+            st.session_state.collected_data = st.session_state.collected_data[-COLLECT_MAX_HISTORY:]
         
     except serial.SerialException as e:
         st.error("❌ **TrueRNG3 device disconnected!**")
@@ -837,20 +978,24 @@ def collect_pseudo_sample(values, file_name):
     
     try:
         with open(file_name + '.bin', "ab") as bin_file:
-            x = dev_pseudo.read_bytes(blocksize)
-            bin_file.write(x)
+            with perf_timer("pseudo.read_bytes"):
+                x = dev_pseudo.read_bytes(blocksize)
+            with perf_timer("file.write_bin"):
+                bin_file.write(x)
         
-        bin_hex = BitArray(x)
-        bin_ascii = bin_hex.bin
-        num_ones_array = bin_ascii.count('1')
-        storage_service.write_csv_count(num_ones_array, file_name)
+        # Count ones quickly without BitArray
+        num_ones_array = count_ones_in_bytes(x)
+        with perf_timer("csv.write_count"):
+            storage_service.write_csv_count(num_ones_array, file_name)
         
-        # Update session state
+        # Update session state (capped)
         st.session_state.collected_data.append({
             'timestamp': time.time(),
             'ones': num_ones_array,
             'sample_size': sample_value
         })
+        if len(st.session_state.collected_data) > COLLECT_MAX_HISTORY:
+            st.session_state.collected_data = st.session_state.collected_data[-COLLECT_MAX_HISTORY:]
         
     except Exception as e:
         print(f"Pseudo RNG collection error: {e}")
@@ -885,6 +1030,8 @@ def start_data_collection(rng_type, xor_mode, sample_size, sample_interval):
     st.session_state.sample_size = sample_size
     st.session_state.sample_interval = sample_interval
     st.session_state.last_update_time = datetime.now()
+    st.session_state.next_live_sample_time = st.session_state.last_update_time
+    st.session_state.next_sample_time = st.session_state.last_update_time
     
     # No seedd needed when using bbpy
     
@@ -904,14 +1051,16 @@ def collect_live_plot_sample():
     if not st.session_state.live_plotting or not st.session_state.current_values:
         return
     
-    current_time = datetime.now()
-    time_since_last = (current_time - st.session_state.last_update_time).total_seconds()
+    now = datetime.now()
+    if st.session_state.get('next_live_sample_time') is None:
+        st.session_state['next_live_sample_time'] = now
     
-    # Only collect if enough time has passed
-    if time_since_last >= st.session_state.sample_interval:
-        values = st.session_state.current_values
-        file_name = st.session_state.file_name
-        
+    values = st.session_state.current_values
+    file_name = st.session_state.file_name
+    
+    # Catch up loop to avoid missing samples due to jitter
+    loops = 0
+    while (now + timedelta(seconds=JITTER_TOLERANCE_SEC)) >= st.session_state['next_live_sample_time'] and loops < 3:
         try:
             if values['live_bit_ac']:
                 collect_live_bitbabbler_sample(values, file_name)
@@ -920,10 +1069,13 @@ def collect_live_plot_sample():
             elif values['live_pseudo_rng_ac']:
                 collect_live_pseudo_sample(values, file_name)
             
-            st.session_state.last_update_time = current_time
+            st.session_state.last_update_time = now
+            st.session_state['next_live_sample_time'] = st.session_state['next_live_sample_time'] + timedelta(seconds=st.session_state.sample_interval)
+            loops += 1
         except Exception as e:
             print(f"Live plotting error: {e}")
             st.session_state.live_plotting = False
+            break
 
 def collect_live_bitbabbler_sample(values, file_name):
     """Collect a single live BitBabbler sample"""
@@ -933,9 +1085,11 @@ def collect_live_bitbabbler_sample(values, file_name):
     
     try:
         with open(file_name + '.bin', "ab+") as bin_file:
-            chunk = dev_bitb.read_bytes(sample_bytes, folds)
+            with perf_timer("bitb.read_bytes"):
+                chunk = dev_bitb.read_bytes(sample_bytes, folds)
             if chunk:
-                bin_file.write(chunk)
+                with perf_timer("file.write_bin"):
+                    bin_file.write(chunk)
             else:
                 st.error("❌ **No data received from BitBabbler**")
                 st.error("Device may be disconnected or not responding properly.")
@@ -943,26 +1097,22 @@ def collect_live_bitbabbler_sample(values, file_name):
                 st.rerun()
                 return
         
-        bin_hex = BitArray(chunk)
-        bin_ascii = bin_hex.bin
+        # Count ones quickly without BitArray
+        num_ones_array = count_ones_in_bytes(chunk)
+        st.session_state.csv_sum += num_ones_array
+        st.session_state.csv_count += 1
+        with perf_timer("csv.write_count"):
+            storage_service.write_csv_count(num_ones_array, file_name)
         
-        if not bin_ascii:
-            st.error("❌ **Empty data from BitBabbler**")
-            st.error("Device is connected but not generating valid data.")
-            st.session_state.live_plotting = False
-            st.rerun()
-            return
+        # Calculate Z-score (streaming)
+        zscore_csv = calculate_zscore_streaming(st.session_state.csv_sum, st.session_state.csv_count, sample_value)
         
-        num_ones_array = bin_ascii.count('1')
-        st.session_state.csv_ones.append(num_ones_array)
-        storage_service.write_csv_count(num_ones_array, file_name)
-        
-        # Calculate Z-score
-        zscore_csv = calculate_zscore(st.session_state.csv_ones, sample_value)
-        
-        # Update session state
+        # Update session state with capped history
         st.session_state.zscore_data.append(zscore_csv)
-        st.session_state.index_data.append(len(st.session_state.csv_ones))
+        st.session_state.index_data.append(st.session_state.csv_count)
+        if len(st.session_state.zscore_data) > LIVE_MAX_POINTS:
+            st.session_state.zscore_data = st.session_state.zscore_data[-LIVE_MAX_POINTS:]
+            st.session_state.index_data = st.session_state.index_data[-LIVE_MAX_POINTS:]
         
     except RuntimeError as e:
         if "not found" in str(e).lower():
@@ -1000,21 +1150,27 @@ def collect_live_trng3_sample(values, file_name):
     
     try:
         with open(file_name + '.bin', "ab+") as bin_file:
-            chunk = dev_trng.read_bytes(blocksize)
-            bin_file.write(chunk)
+            with perf_timer("trng.read_bytes"):
+                chunk = dev_trng.read_bytes(blocksize)
+            with perf_timer("file.write_bin"):
+                bin_file.write(chunk)
         
-        bin_hex = BitArray(chunk)
-        bin_ascii = bin_hex.bin
-        num_ones_array = int(bin_ascii.count('1'))
-        st.session_state.csv_ones.append(num_ones_array)
-        storage_service.write_csv_count(num_ones_array, file_name)
+        # Count ones quickly without BitArray
+        num_ones_array = count_ones_in_bytes(chunk)
+        st.session_state.csv_sum += num_ones_array
+        st.session_state.csv_count += 1
+        with perf_timer("csv.write_count"):
+            storage_service.write_csv_count(num_ones_array, file_name)
         
-        # Calculate Z-score
-        zscore_csv = calculate_zscore(st.session_state.csv_ones, sample_value)
+        # Calculate Z-score (streaming)
+        zscore_csv = calculate_zscore_streaming(st.session_state.csv_sum, st.session_state.csv_count, sample_value)
         
-        # Update session state
+        # Update session state with capped history
         st.session_state.zscore_data.append(zscore_csv)
-        st.session_state.index_data.append(len(st.session_state.csv_ones))
+        st.session_state.index_data.append(st.session_state.csv_count)
+        if len(st.session_state.zscore_data) > LIVE_MAX_POINTS:
+            st.session_state.zscore_data = st.session_state.zscore_data[-LIVE_MAX_POINTS:]
+            st.session_state.index_data = st.session_state.index_data[-LIVE_MAX_POINTS:]
         
     except OSError as e:
         if is_device_not_found_error(e):
@@ -1041,21 +1197,27 @@ def collect_live_pseudo_sample(values, file_name):
     
     try:
         with open(file_name + '.bin', "ab+") as bin_file:
-            chunk = secrets.token_bytes(blocksize)
-            bin_file.write(chunk)
+            with perf_timer("pseudo.token_bytes"):
+                chunk = secrets.token_bytes(blocksize)
+            with perf_timer("file.write_bin"):
+                bin_file.write(chunk)
         
-        bin_hex = BitArray(chunk)
-        bin_ascii = bin_hex.bin
-        num_ones_array = int(bin_ascii.count('1'))
-        st.session_state.csv_ones.append(num_ones_array)
-        storage_service.write_csv_count(num_ones_array, file_name)
+        # Count ones quickly without BitArray
+        num_ones_array = count_ones_in_bytes(chunk)
+        st.session_state.csv_sum += num_ones_array
+        st.session_state.csv_count += 1
+        with perf_timer("csv.write_count"):
+            storage_service.write_csv_count(num_ones_array, file_name)
         
-        # Calculate Z-score
-        zscore_csv = calculate_zscore(st.session_state.csv_ones, sample_value)
+        # Calculate Z-score (streaming)
+        zscore_csv = calculate_zscore_streaming(st.session_state.csv_sum, st.session_state.csv_count, sample_value)
         
-        # Update session state
+        # Update session state with capped history
         st.session_state.zscore_data.append(zscore_csv)
-        st.session_state.index_data.append(len(st.session_state.csv_ones))
+        st.session_state.index_data.append(st.session_state.csv_count)
+        if len(st.session_state.zscore_data) > LIVE_MAX_POINTS:
+            st.session_state.zscore_data = st.session_state.zscore_data[-LIVE_MAX_POINTS:]
+            st.session_state.index_data = st.session_state.index_data[-LIVE_MAX_POINTS:]
         
     except Exception as e:
         print(f"Live Pseudo RNG error: {e}")
@@ -1089,6 +1251,8 @@ def start_live_plotting(rng_type, xor_mode, sample_size, sample_interval):
     st.session_state.zscore_data = []
     st.session_state.index_data = []
     st.session_state.csv_ones = []
+    st.session_state.csv_sum = 0
+    st.session_state.csv_count = 0
     st.session_state.sample_size = sample_size
     st.session_state.sample_interval = sample_interval
     st.session_state.last_update_time = datetime.now()
