@@ -487,7 +487,7 @@ def render_data_collection_tab():
         with col_status:
             # Auto-updating collection status
             # Only run fragment when collecting
-            run_every = 1 if st.session_state.collecting else None
+            run_every = st.session_state.sample_interval if st.session_state.collecting else None
             
             @st.fragment(run_every=run_every)
             def update_collection_status():
@@ -722,7 +722,7 @@ def render_live_plot_tab():
         
         # Auto-updating live chart
         # Only run fragment when live plotting
-        run_every = 1 if st.session_state.live_plotting else None
+        run_every = st.session_state.sample_interval if st.session_state.live_plotting else None
         
         @st.fragment(run_every=run_every)
         def update_live_chart():
@@ -745,8 +745,8 @@ def render_live_plot_tab():
                 with perf_timer("plot_layout"):
                     fig.update_layout(
                         title="Live Z-Score Plot",
-                        xaxis_title=f"Number of samples (one sample every {live_sample_interval} second(s))",
-                        yaxis_title=f"Z-Score - Sample Size = {live_sample_size} bits",
+                        xaxis_title=f"Number of samples (one sample every {st.session_state.sample_interval} second(s))",
+                        yaxis_title=f"Z-Score - Sample Size = {st.session_state.sample_size} bits",
                         height=400,
                         showlegend=False,
                         uirevision=True,
