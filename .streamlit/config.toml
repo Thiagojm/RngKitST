@@ -1,6 +1,6 @@
 [server]
 port = 8501 # change port number. By default streamlit uses 8501 port
-# headless=true # This will eliminate automatically open browser
+headless=true # This will eliminate automatically open browser
 # enableCORS=false 
 # enableXsrfProtection=false 
 # enableWebsocketCompression=false

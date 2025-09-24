@@ -57,7 +57,11 @@ def init_session_state():
         'perf_samples': {},
         # Scheduled sampling times
         'next_sample_time': None,
-        'next_live_sample_time': None
+        'next_live_sample_time': None,
+        # Device detection snapshot
+        'bb_detected': None,
+        'bb_error': "",
+        'trng_detected': None
     }
     
     for key, value in defaults.items():
@@ -182,9 +186,21 @@ def detect_bitbabbler_cached(refresh_counter: int) -> Tuple[bool, str]:
         A tuple with (detected, error_message).
     """
     try:
-        detected = dev_bitb.detect()
-        error_msg = "" if detected else dev_bitb.get_detection_error()
-        return detected, error_msg
+        # Try a few times to allow USB stack to settle after plug/unplug
+        attempts = 3
+        last_error = ""
+        for i in range(attempts):
+            detected = dev_bitb.probe()
+            if detected:
+                return True, ""
+            # reset and retry after short wait
+            try:
+                dev_bitb.reset()
+            except Exception:
+                pass
+            last_error = dev_bitb.get_detection_error()
+            time.sleep(0.2)
+        return False, last_error
     except Exception as exc:  # pragma: no cover - defensive
         return False, str(exc)
 
@@ -204,16 +220,38 @@ def detect_trng_cached(refresh_counter: int) -> bool:
         True if the device is detected, False otherwise.
     """
     try:
-        return dev_trng.detect()
+        # Try a few times to allow USB/serial enumeration to settle
+        for _ in range(3):
+            if dev_trng.detect():
+                return True
+            time.sleep(0.2)
+        return False
     except Exception:  # pragma: no cover - defensive
         return False
 
 
 def refresh_device_status() -> None:
     """Increment refresh counter to invalidate cached device detection."""
+    # Also reset device-level cache so unplug/plug is seen immediately
+    try:
+        dev_bitb.reset()
+    except Exception:
+        pass
     st.session_state['device_refresh_counter'] = (
         st.session_state.get('device_refresh_counter', 0) + 1
     )
+    # Perform one-time detection and store snapshot results
+    try:
+        bb_ok, bb_err = detect_bitbabbler_cached(st.session_state['device_refresh_counter'])
+    except Exception as _:
+        bb_ok, bb_err = False, "Unexpected detection error"
+    try:
+        trng_ok = detect_trng_cached(st.session_state['device_refresh_counter'])
+    except Exception:
+        trng_ok = False
+    st.session_state['bb_detected'] = bb_ok
+    st.session_state['bb_error'] = bb_err
+    st.session_state['trng_detected'] = trng_ok
 def create_values_dict(rng_type: str, xor_mode: int, sample_size: int, sample_interval: float, prefix: str = "") -> dict:
     """Create a values dictionary for device operations"""
     return {
@@ -324,6 +362,11 @@ def validate_device_detection(values: dict, rng_type: str, force_refresh: bool =
 
     if values.get("bit_ac", False):
         if force_refresh:
+            # bypass cache at both app and device layer
+            try:
+                dev_bitb.reset()
+            except Exception:
+                pass
             detected = dev_bitb.detect()
             error_msg = "" if detected else dev_bitb.get_detection_error()
         else:
@@ -420,6 +463,9 @@ def main():
     st.markdown("---")
     # Perf panel
     render_perf_panel()
+    # On first load, take a detection snapshot (only once per session)
+    if st.session_state.get('bb_detected') is None or st.session_state.get('trng_detected') is None:
+        refresh_device_status()
     
     # Create tabs
     tab1, tab2, tab3 = st.tabs(["📊 Data Collection & Analysis", "📈 Live Plot", "📖 Instructions"])
@@ -452,15 +498,13 @@ def render_data_collection_tab():
         # Device Status Indicator (cached) and manual refresh
         cols_status = st.columns([3, 1])
         with cols_status[0]:
-            refresh_counter = st.session_state.get('device_refresh_counter', 0)
             if rng_type == "BitBabbler":
-                detected, error_msg = detect_bitbabbler_cached(refresh_counter)
-                if detected:
+                if st.session_state.get('bb_detected'):
                     st.success("✅ BitBabbler device detected and ready")
                 else:
-                    st.error(f"❌ BitBabbler device not available: {error_msg}")
+                    st.error(f"❌ BitBabbler device not available: {st.session_state.get('bb_error','')}" )
             elif rng_type in ["TrueRNG", "TrueRNG3"]:
-                if detect_trng_cached(refresh_counter):
+                if st.session_state.get('trng_detected'):
                     st.success("✅ TrueRNG3 device detected and ready")
                 else:
                     st.error("❌ TrueRNG3 device not detected")
@@ -681,15 +725,13 @@ def render_live_plot_tab():
         # Device Status Indicator for Live Plot (cached) and manual refresh
         cols_status_live = st.columns([3, 1])
         with cols_status_live[0]:
-            refresh_counter = st.session_state.get('device_refresh_counter', 0)
             if live_rng_type == "BitBabbler":
-                detected, error_msg = detect_bitbabbler_cached(refresh_counter)
-                if detected:
+                if st.session_state.get('bb_detected'):
                     st.success("✅ BitBabbler device detected and ready")
                 else:
-                    st.error(f"❌ BitBabbler device not available: {error_msg}")
+                    st.error(f"❌ BitBabbler device not available: {st.session_state.get('bb_error','')}")
             elif live_rng_type == "TrueRNG3":
-                if detect_trng_cached(refresh_counter):
+                if st.session_state.get('trng_detected'):
                     st.success("✅ TrueRNG3 device detected and ready")
                 else:
                     st.error("❌ TrueRNG3 device not detected")
@@ -1013,6 +1055,8 @@ def start_data_collection(rng_type, xor_mode, sample_size, sample_interval):
     
     # Device detection via adapters
     # Force a fresh detection when starting collection
+    # Take a fresh detection snapshot on start
+    refresh_device_status()
     if not validate_device_detection(values, rng_type, force_refresh=True):
         show_device_error(rng_type)
         return
@@ -1107,12 +1151,9 @@ def collect_live_bitbabbler_sample(values, file_name):
         # Calculate Z-score (streaming)
         zscore_csv = calculate_zscore_streaming(st.session_state.csv_sum, st.session_state.csv_count, sample_value)
         
-        # Update session state with capped history
+        # Update session state
         st.session_state.zscore_data.append(zscore_csv)
         st.session_state.index_data.append(st.session_state.csv_count)
-        if len(st.session_state.zscore_data) > LIVE_MAX_POINTS:
-            st.session_state.zscore_data = st.session_state.zscore_data[-LIVE_MAX_POINTS:]
-            st.session_state.index_data = st.session_state.index_data[-LIVE_MAX_POINTS:]
         
     except RuntimeError as e:
         if "not found" in str(e).lower():
@@ -1165,12 +1206,9 @@ def collect_live_trng3_sample(values, file_name):
         # Calculate Z-score (streaming)
         zscore_csv = calculate_zscore_streaming(st.session_state.csv_sum, st.session_state.csv_count, sample_value)
         
-        # Update session state with capped history
+        # Update session state
         st.session_state.zscore_data.append(zscore_csv)
         st.session_state.index_data.append(st.session_state.csv_count)
-        if len(st.session_state.zscore_data) > LIVE_MAX_POINTS:
-            st.session_state.zscore_data = st.session_state.zscore_data[-LIVE_MAX_POINTS:]
-            st.session_state.index_data = st.session_state.index_data[-LIVE_MAX_POINTS:]
         
     except OSError as e:
         if is_device_not_found_error(e):
@@ -1235,6 +1273,8 @@ def start_live_plotting(rng_type, xor_mode, sample_size, sample_interval):
     
     # Device detection via adapters
     # Force a fresh detection when starting live plotting
+    # Take a fresh detection snapshot on start
+    refresh_device_status()
     if not validate_device_detection(values, rng_type, force_refresh=True):
         show_device_error(rng_type)
         return

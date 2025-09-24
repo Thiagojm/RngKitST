@@ -336,6 +336,18 @@ class FTDIDevice:
                 self._rbuf.extend(payload[needed:])
         return bytes(out)
 
+    def close(self) -> None:
+        """Release USB resources and any claimed interfaces.
+
+        This uses PyUSB's dispose_resources which will release interfaces and
+        associated endpoints when possible. Errors are ignored to avoid
+        crashing callers during cleanup.
+        """
+        try:
+            usb.util.dispose_resources(self.dev)
+        except Exception:
+            pass
+
     # ---------- MPSSE init and sync ----------
     def init_mpsse(self, latency_ms: int) -> bool:
         for _ in range(2):  # mirror the C++ reattempt before full reinit
