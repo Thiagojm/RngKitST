@@ -4,9 +4,8 @@ import platform
 import secrets
 import sys
 import time
-from contextlib import contextmanager
 from datetime import datetime, timedelta
-from typing import Dict, List, Tuple
+from typing import Tuple
 
 # External imports
 import streamlit as st
@@ -52,9 +51,7 @@ def init_session_state():
         'csv_count': 0,
         # Cached device detection invalidation counter
         'device_refresh_counter': 0,
-        # Performance profiling
-        'perf_enabled': True,
-        'perf_samples': {},
+        # Performance profiling disabled
         # Scheduled sampling times
         'next_sample_time': None,
         'next_live_sample_time': None,
@@ -82,78 +79,14 @@ COLLECT_MAX_HISTORY = 200  # cap collection status history kept in memory
 PERF_MAX_SAMPLES = 200  # cap stored perf samples per span
 JITTER_TOLERANCE_SEC = 0.25  # scheduling tolerance to avoid missed samples
 
-def record_perf_sample(span_name: str, duration_seconds: float) -> None:
-    """Record a performance sample for a named span.
-
-    Parameters
-    ----------
-    span_name: str
-        Logical name of the measured span.
-    duration_seconds: float
-        Elapsed time in seconds.
-    """
-    if not st.session_state.get('perf_enabled', True):
-        return
-    samples: Dict[str, List[float]] = st.session_state.get('perf_samples', {})
-    arr = samples.get(span_name, [])
-    arr.append(duration_seconds)
-    if len(arr) > PERF_MAX_SAMPLES:
-        arr = arr[-PERF_MAX_SAMPLES:]
-    samples[span_name] = arr
-    st.session_state['perf_samples'] = samples
-
-
-@contextmanager
 def perf_timer(span_name: str):
-    """Context manager to measure and record wall time for a code block.
-
-    Parameters
-    ----------
-    span_name: str
-        Logical name of the measured span.
-    """
-    if not st.session_state.get('perf_enabled', True):
-        yield
-        return
-    start = time.perf_counter()
-    try:
-        yield
-    finally:
-        end = time.perf_counter()
-        record_perf_sample(span_name, end - start)
-
-
-def render_perf_panel(max_rows: int = 6) -> None:
-    """Render a small performance panel in the sidebar with recent timings.
-
-    Parameters
-    ----------
-    max_rows: int
-        Maximum number of spans to show, sorted by worst-case time.
-    """
-    samples: Dict[str, List[float]] = st.session_state.get('perf_samples', {})
-    if not samples:
-        return
-    with st.sidebar.expander("🕒 Performance (recent)", expanded=False):
-        # Build simple rows sorted by max duration desc
-        rows = []
-        for name, arr in samples.items():
-            if not arr:
-                continue
-            count = len(arr)
-            total = sum(arr)
-            avg = total / count
-            worst = max(arr)
-            arr_sorted = sorted(arr)
-            p95 = arr_sorted[int(0.95 * (count - 1))] if count > 1 else worst
-            rows.append((name, avg, p95, worst, count))
-        rows.sort(key=lambda r: r[3], reverse=True)
-        if not rows:
-            st.write("No perf samples yet.")
-            return
-        rows = rows[:max_rows]
-        for name, avg, p95, worst, count in rows:
-            st.write(f"{name}: avg {avg*1000:.1f} ms | p95 {p95*1000:.1f} ms | max {worst*1000:.1f} ms (n={count})")
+    """No-op perf timer (profiling disabled)."""
+    class _Noop:
+        def __enter__(self):
+            return None
+        def __exit__(self, exc_type, exc, tb):
+            return False
+    return _Noop()
 
 
 def count_ones_in_bytes(data: bytes) -> int:
@@ -461,8 +394,6 @@ def main():
     st.title("🎲 RngKit 1.0 - Streamlit Version")
     st.markdown("**by Thiago Jung** - thiagojm1984@hotmail.com")
     st.markdown("---")
-    # Perf panel
-    render_perf_panel()
     # On first load, take a detection snapshot (only once per session)
     if st.session_state.get('bb_detected') is None or st.session_state.get('trng_detected') is None:
         refresh_device_status()
