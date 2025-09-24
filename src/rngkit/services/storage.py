@@ -68,13 +68,10 @@ def read_csv_counts(file_path: str) -> pd.DataFrame:
         
     Returns:
         DataFrame with columns ['time', 'ones'] where time is formatted as HH:MM:SS
-        
-    Raises:
-        RuntimeError: If file cannot be read
     """
     try:
         df = pd.read_csv(file_path, header=None, names=['time', 'ones'])
-        df['time'] = pd.to_datetime(df['time']).apply(lambda x: x.strftime('%H%M%S'))
+        df['time'] = pd.to_datetime(df['time']).dt.strftime('%H:%M:%S')
         return df
     except (OSError, IOError, pd.errors.EmptyDataError) as e:
         raise RuntimeError(f"Failed to read CSV file: {e}")
@@ -128,10 +125,20 @@ def write_excel_with_chart(df: pd.DataFrame, file_path: str, block_bits: int, in
         df.to_excel(writer, sheet_name='Zscore', index=False)
         workbook = writer.book
         worksheet = writer.sheets['Zscore']
+        
+        if file_path.endswith('.csv'):
+            time_format = workbook.add_format({'num_format': 'hh:mm:ss'})
+            worksheet.set_column(0, 0, None, time_format)
+            x_name = f'Time - one sample every {interval} second(s)'
+            date_axis = True
+        else:
+            x_name = f'Number of Samples - one sample every {interval} second(s)'
+            date_axis = False
+        
         chart = workbook.add_chart({'type': 'line'})
         chart.add_series({'categories': ['Zscore', 1, 0, len(df), 0], 'values': ['Zscore', 1, 3, len(df), 3]})
         chart.set_title({'name': os.path.basename(file_path)})
-        chart.set_x_axis({'name': f'Number of Samples - one sample every {interval} second(s)', 'date_axis': True})
+        chart.set_x_axis({'name': x_name, 'date_axis': date_axis})
         chart.set_y_axis({'name': f'Z-Score - Sample Size = {block_bits} bits'})
         chart.set_legend({'none': True})
         worksheet.insert_chart('F2', chart)
