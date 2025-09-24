@@ -5,6 +5,7 @@ import secrets
 import sys
 import time
 from datetime import datetime
+from typing import Tuple
 
 # External imports
 import streamlit as st
@@ -46,7 +47,9 @@ def init_session_state():
         'last_update_time': datetime.now(),
         'sample_size': 2048,
         'sample_interval': 1.0,
-        'csv_ones': []
+        'csv_ones': [],
+        # Cached device detection invalidation counter
+        'device_refresh_counter': 0
     }
     
     for key, value in defaults.items():
@@ -62,6 +65,53 @@ init_session_state()
 DATA_DIR = svc_utils.ensure_data_dir()
 
 # Helper functions
+@st.cache_data(ttl=10)
+def detect_bitbabbler_cached(refresh_counter: int) -> Tuple[bool, str]:
+    """Return BitBabbler detection status using cache.
+
+    Parameters
+    ----------
+    refresh_counter: int
+        Counter value used to invalidate the cache when changed.
+
+    Returns
+    -------
+    Tuple[bool, str]
+        A tuple with (detected, error_message).
+    """
+    try:
+        detected = dev_bitb.detect()
+        error_msg = "" if detected else dev_bitb.get_detection_error()
+        return detected, error_msg
+    except Exception as exc:  # pragma: no cover - defensive
+        return False, str(exc)
+
+
+@st.cache_data(ttl=10)
+def detect_trng_cached(refresh_counter: int) -> bool:
+    """Return TrueRNG/TrueRNG3 detection status using cache.
+
+    Parameters
+    ----------
+    refresh_counter: int
+        Counter value used to invalidate the cache when changed.
+
+    Returns
+    -------
+    bool
+        True if the device is detected, False otherwise.
+    """
+    try:
+        return dev_trng.detect()
+    except Exception:  # pragma: no cover - defensive
+        return False
+
+
+def refresh_device_status() -> None:
+    """Increment refresh counter to invalidate cached device detection."""
+    st.session_state['device_refresh_counter'] = (
+        st.session_state.get('device_refresh_counter', 0) + 1
+    )
 def create_values_dict(rng_type: str, xor_mode: int, sample_size: int, sample_interval: float, prefix: str = "") -> dict:
     """Create a values dictionary for device operations"""
     return {
@@ -151,22 +201,51 @@ def get_platform_specific_troubleshooting(device_type: str) -> list:
     return ["1. Ensure device is properly connected to USB"]
 
 
-def validate_device_detection(values: dict, rng_type: str) -> bool:
-    """Validate device detection and show appropriate error messages"""
-    if values.get("bit_ac", False) and not dev_bitb.detect():
-        # Show detailed error message for BitBabbler
-        error_msg = dev_bitb.get_detection_error()
-        st.error(f"❌ **BitBabbler Device Error:** {error_msg}")
-        st.error("**Troubleshooting steps:**")
-        for step in get_platform_specific_troubleshooting("BitBabbler"):
-            st.error(step)
-        return False
-    elif values.get("true3_ac", False) and not dev_trng.detect():
-        st.error("❌ **TrueRNG3 Device Error:** Device not detected")
-        st.error("**Troubleshooting steps:**")
-        for step in get_platform_specific_troubleshooting("TrueRNG"):
-            st.error(step)
-        return False
+def validate_device_detection(values: dict, rng_type: str, force_refresh: bool = False) -> bool:
+    """Validate device detection and show appropriate error messages.
+
+    Parameters
+    ----------
+    values: dict
+        Current selection flags for devices.
+    rng_type: str
+        Selected RNG type friendly name.
+    force_refresh: bool
+        When True, bypass cache and perform a fresh device detection.
+
+    Returns
+    -------
+    bool
+        True when the required device is detected, False otherwise.
+    """
+    refresh_counter = st.session_state.get('device_refresh_counter', 0)
+
+    if values.get("bit_ac", False):
+        if force_refresh:
+            detected = dev_bitb.detect()
+            error_msg = "" if detected else dev_bitb.get_detection_error()
+        else:
+            detected, error_msg = detect_bitbabbler_cached(refresh_counter)
+
+        if not detected:
+            st.error(f"❌ **BitBabbler Device Error:** {error_msg}")
+            st.error("**Troubleshooting steps:**")
+            for step in get_platform_specific_troubleshooting("BitBabbler"):
+                st.error(step)
+            return False
+
+    elif values.get("true3_ac", False):
+        if force_refresh:
+            detected = dev_trng.detect()
+        else:
+            detected = detect_trng_cached(refresh_counter)
+
+        if not detected:
+            st.error("❌ **TrueRNG3 Device Error:** Device not detected")
+            st.error("**Troubleshooting steps:**")
+            for step in get_platform_specific_troubleshooting("TrueRNG"):
+                st.error(step)
+            return False
     # Removed true3_bit_ac logic as combined option is no longer supported
     return True
 
@@ -244,20 +323,27 @@ def render_data_collection_tab():
             index=0
         )
         
-        # Device Status Indicator
-        if rng_type == "BitBabbler":
-            if dev_bitb.detect():
-                st.success("✅ BitBabbler device detected and ready")
-            else:
-                error_msg = dev_bitb.get_detection_error()
-                st.error(f"❌ BitBabbler device not available: {error_msg}")
-        elif rng_type in ["TrueRNG", "TrueRNG3"]:
-            if dev_trng.detect():
-                st.success("✅ TrueRNG3 device detected and ready")
-            else:
-                st.error("❌ TrueRNG3 device not detected")
-        elif rng_type == "PseudoRNG":
-            st.info("ℹ️ PseudoRNG (software-based) - always available")
+        # Device Status Indicator (cached) and manual refresh
+        cols_status = st.columns([3, 1])
+        with cols_status[0]:
+            refresh_counter = st.session_state.get('device_refresh_counter', 0)
+            if rng_type == "BitBabbler":
+                detected, error_msg = detect_bitbabbler_cached(refresh_counter)
+                if detected:
+                    st.success("✅ BitBabbler device detected and ready")
+                else:
+                    st.error(f"❌ BitBabbler device not available: {error_msg}")
+            elif rng_type in ["TrueRNG", "TrueRNG3"]:
+                if detect_trng_cached(refresh_counter):
+                    st.success("✅ TrueRNG3 device detected and ready")
+                else:
+                    st.error("❌ TrueRNG3 device not detected")
+            elif rng_type == "PseudoRNG":
+                st.info("ℹ️ PseudoRNG (software-based) - always available")
+        with cols_status[1]:
+            if st.button("🔄 Refresh", use_container_width=True):
+                refresh_device_status()
+                st.rerun()
         
         # Device-specific options
         if rng_type == "BitBabbler":
@@ -466,20 +552,27 @@ def render_live_plot_tab():
             key="live_rng"
         )
         
-        # Device Status Indicator for Live Plot
-        if live_rng_type == "BitBabbler":
-            if dev_bitb.detect():
-                st.success("✅ BitBabbler device detected and ready")
-            else:
-                error_msg = dev_bitb.get_detection_error()
-                st.error(f"❌ BitBabbler device not available: {error_msg}")
-        elif live_rng_type == "TrueRNG3":
-            if dev_trng.detect():
-                st.success("✅ TrueRNG3 device detected and ready")
-            else:
-                st.error("❌ TrueRNG3 device not detected")
-        elif live_rng_type == "PseudoRNG":
-            st.info("ℹ️ PseudoRNG (software-based) - always available")
+        # Device Status Indicator for Live Plot (cached) and manual refresh
+        cols_status_live = st.columns([3, 1])
+        with cols_status_live[0]:
+            refresh_counter = st.session_state.get('device_refresh_counter', 0)
+            if live_rng_type == "BitBabbler":
+                detected, error_msg = detect_bitbabbler_cached(refresh_counter)
+                if detected:
+                    st.success("✅ BitBabbler device detected and ready")
+                else:
+                    st.error(f"❌ BitBabbler device not available: {error_msg}")
+            elif live_rng_type == "TrueRNG3":
+                if detect_trng_cached(refresh_counter):
+                    st.success("✅ TrueRNG3 device detected and ready")
+                else:
+                    st.error("❌ TrueRNG3 device not detected")
+            elif live_rng_type == "PseudoRNG":
+                st.info("ℹ️ PseudoRNG (software-based) - always available")
+        with cols_status_live[1]:
+            if st.button("🔄 Refresh", key="live_refresh", use_container_width=True):
+                refresh_device_status()
+                st.rerun()
         
         # Device-specific options
         if live_rng_type == "BitBabbler":
@@ -774,7 +867,8 @@ def start_data_collection(rng_type, xor_mode, sample_size, sample_interval):
     values = create_values_dict(rng_type, xor_mode, sample_size, sample_interval, "ac_")
     
     # Device detection via adapters
-    if not validate_device_detection(values, rng_type):
+    # Force a fresh detection when starting collection
+    if not validate_device_detection(values, rng_type, force_refresh=True):
         show_device_error(rng_type)
         return
     
@@ -978,7 +1072,8 @@ def start_live_plotting(rng_type, xor_mode, sample_size, sample_interval):
     values = create_values_dict(rng_type, xor_mode, sample_size, sample_interval, "live_")
     
     # Device detection via adapters
-    if not validate_device_detection(values, rng_type):
+    # Force a fresh detection when starting live plotting
+    if not validate_device_detection(values, rng_type, force_refresh=True):
         show_device_error(rng_type)
         return
     
