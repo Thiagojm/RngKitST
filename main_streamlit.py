@@ -32,6 +32,21 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Compact top spacing and smaller headings
+st.markdown(
+    """
+    <style>
+    .block-container { padding-top: 2rem; padding-bottom: 0.75rem; }
+    h1 { font-size: 1.4rem; margin: 0.5rem 0 0.4rem 0; }
+    h2 { margin-top: 0.5rem; }
+    h3 { margin-top: 0.5rem; }
+    .stTabs [role='tablist'] { margin-top: 0.5rem; }
+    .app-title { font-size: 1.2rem; line-height: 2.0rem; margin: 0.6rem 0 0.4rem 0; font-weight: 600; white-space: nowrap; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 # Initialize session state with defaults
 def init_session_state():
     """Initialize all session state variables with default values"""
@@ -391,9 +406,7 @@ def process_uploaded_file(uploaded_file, data_dir: str) -> str:
 
 def main():
     # Header
-    st.title("🎲 RngKit 1.0 - Streamlit Version")
-    st.markdown("**by Thiago Jung** - thiagojm1984@hotmail.com")
-    st.markdown("---")
+    st.markdown("<div class='app-title'>🎲 RngKit 1.0 - Streamlit Version</div>", unsafe_allow_html=True)
     # On first load, take a detection snapshot (only once per session)
     if st.session_state.get('bb_detected') is None or st.session_state.get('trng_detected') is None:
         refresh_device_status()
@@ -411,93 +424,85 @@ def main():
         render_instructions_tab()
 
 def render_data_collection_tab():
-    st.header("📊 Data Collection & Analysis")
+    st.subheader("📊 Data Collection & Analysis")
     
-    # Create two columns for layout
-    col1, col2 = st.columns([1, 1])
-    
-    with col1:
-        st.subheader("🔧 Acquiring Data")
+    # ========= Acquiring Data (bordered box) =========
+    with st.container(border=True):
+        st.subheader("Acquiring Data")
         
-        # RNG Device Selection
-        rng_type = st.radio(
-            "Choose RNG Device:",
-            ["BitBabbler", "TrueRNG", "PseudoRNG"],
-            index=0
-        )
+        # Three-column layout: device selection/status | controls | start & live status
+        acq_left, acq_mid, acq_right = st.columns([1.2, 1.0, 0.9])
         
-        # Device Status Indicator (cached) and manual refresh
-        cols_status = st.columns([3, 1])
-        with cols_status[0]:
-            if rng_type == "BitBabbler":
-                if st.session_state.get('bb_detected'):
-                    st.success("✅ BitBabbler device detected and ready")
-                else:
-                    st.error(f"❌ BitBabbler device not available: {st.session_state.get('bb_error','')}" )
-            elif rng_type in ["TrueRNG", "TrueRNG3"]:
-                if st.session_state.get('trng_detected'):
-                    st.success("✅ TrueRNG3 device detected and ready")
-                else:
-                    st.error("❌ TrueRNG3 device not detected")
-            elif rng_type == "PseudoRNG":
-                st.info("ℹ️ PseudoRNG (software-based) - always available")
-        with cols_status[1]:
-            if st.button("🔄 Refresh", use_container_width=True):
-                refresh_device_status()
-                st.rerun()
-        
-        # Device-specific options
-        if rng_type == "BitBabbler":
-            xor_mode = st.selectbox(
-                "RAW(0)/XOR (1,2,3,4):",
-                options=[0, 1, 2, 3, 4],
-                index=0,
-                help="0 = RAW mode, 1-4 = XOR with different fold counts"
+        # Left: RNG selection + device status with refresh
+        with acq_left:
+            rng_type = st.radio(
+                "Choose RNG",
+                ["BitBabbler", "TrueRNG", "PseudoRNG"],
+                index=0
             )
-        else:
-            xor_mode = 0
+            cols_status = st.columns([3, 1])
+            with cols_status[0]:
+                if rng_type == "BitBabbler":
+                    if st.session_state.get('bb_detected'):
+                        st.success("✅ BitBabbler ready")
+                    else:
+                        st.error(f"❌ BitBabbler unavailable: {st.session_state.get('bb_error','')}")
+                elif rng_type in ["TrueRNG", "TrueRNG3"]:
+                    if st.session_state.get('trng_detected'):
+                        st.success("✅ TrueRNG3 ready")
+                    else:
+                        st.error("❌ TrueRNG3 not detected")
+                elif rng_type == "PseudoRNG":
+                    st.info("ℹ️ PseudoRNG (software)")
+            with cols_status[1]:
+                if st.button("🔄", help="Refresh devices", use_container_width=True):
+                    refresh_device_status()
+                    st.rerun()
         
-        # Sample parameters
-        sample_size = st.number_input(
-            "Sample Size (bits):",
-            min_value=8,
-            value=2048,
-            step=8,
-            help="Must be divisible by 8"
-        )
+        # Middle: controls
+        with acq_mid:
+            if rng_type == "BitBabbler":
+                xor_mode = st.selectbox(
+                    "RAW(0)/XOR (1,2,3,4):",
+                    options=[0, 1, 2, 3, 4],
+                    index=0,
+                    help="0 = RAW mode, 1-4 = XOR with different fold counts"
+                )
+            else:
+                xor_mode = 0
+            sample_size = st.number_input(
+                "Sample Size (bits):",
+                min_value=8,
+                value=2048,
+                step=8,
+                help="Must be divisible by 8"
+            )
+            sample_interval = st.number_input(
+                "Sample Interval (s):",
+                min_value=1,
+                value=1,
+                step=1
+            )
         
-        sample_interval = st.number_input(
-            "Sample Interval (seconds):",
-            min_value=1,
-            value=1,
-            step=1
-        )
-        
-        # Collection controls
-        col_start, col_status = st.columns([1, 1])
-        
-        with col_start:
+        # Right: start/stop button + live status fragment
+        with acq_right:
             if not st.session_state.collecting:
-                if st.button("▶️ Start Collection", type="primary", use_container_width=True):
+                if st.button("Start", type="primary", use_container_width=True, key="acq_start_btn"):
                     start_data_collection(rng_type, xor_mode, sample_size, sample_interval)
             else:
-                if st.button("⏹️ Stop Collection", type="secondary", use_container_width=True):
+                if st.button("Stop", type="secondary", use_container_width=True, key="acq_stop_btn"):
                     stop_data_collection()
-        
-        with col_status:
+            
             # Auto-updating collection status
-            # Only run fragment when collecting
             run_every = st.session_state.sample_interval if st.session_state.collecting else None
             
             @st.fragment(run_every=run_every)
             def update_collection_status():
                 if st.session_state.collecting:
-                    # Generate new data
                     with perf_timer("collect_data_sample"):
                         collect_data_sample()
                     
                     st.success("🟢 Collecting")
-                    # Show collection statistics
                     if st.session_state.collected_data:
                         data_count = len(st.session_state.collected_data)
                         latest_data = st.session_state.collected_data[-1]
@@ -507,16 +512,23 @@ def render_data_collection_tab():
                     st.info("🟡 Idle")
             
             update_collection_status()
-    with col2:
-        st.subheader("📈 Data Analysis")
+    
+    # ========= Data Analysis (bordered box) =========
+    with st.container(border=True):
+        st.subheader("Data Analysis")
         
-        # File selection for analysis
-        st.info("💡 **Tip**: Navigate to the data folder to find your generated files")
-        uploaded_file = st.file_uploader(
-            "Select file for analysis:",
-            type=['csv', 'bin'],
-            help="Select a previously generated .csv or .bin file from the data folder"
-        )
+        # Inline file selector row
+        sel_label_col, sel_uploader_col = st.columns([0.25, 0.75])
+        with sel_label_col:
+            st.markdown("Select file:")
+        with sel_uploader_col:
+            uploaded_file = st.file_uploader(
+                "Select file for analysis:",
+                type=['csv', 'bin'],
+                help="Select a previously generated .csv or .bin file from the data folder",
+                label_visibility="collapsed",
+                key="analysis_uploader"
+            )
         
         if uploaded_file:
             st.info(f"Selected: {uploaded_file.name}")
@@ -524,7 +536,6 @@ def render_data_collection_tab():
             # Analysis parameters (auto-detected from filename)
             analysis_col1, analysis_col2 = st.columns(2)
             
-            # Try to detect defaults from filename convention
             detected_sample = 2048
             detected_interval = 1
             try:
@@ -532,8 +543,7 @@ def render_data_collection_tab():
                 detected_interval = fn_service.parse_interval(uploaded_file.name)
             except Exception:
                 pass
-
-            # Update session defaults when file changes
+            
             if st.session_state.get('_last_uploaded_for_analysis') != uploaded_file.name:
                 st.session_state['an_sample_size'] = detected_sample
                 st.session_state['an_sample_interval'] = detected_interval
@@ -546,7 +556,6 @@ def render_data_collection_tab():
                     step=8,
                     key="an_sample_size"
                 )
-            
             with analysis_col2:
                 an_sample_interval = st.number_input(
                     "Sample Interval (seconds):",
@@ -555,17 +564,13 @@ def render_data_collection_tab():
                     key="an_sample_interval"
                 )
             
-            # Analysis buttons
-            analysis_btn_col1, analysis_btn_col2 = st.columns(2)
-            
-            with analysis_btn_col1:
-                if st.button("📊 Generate Analysis", use_container_width=True):
+            # Actions row
+            actions_col1, actions_col2 = st.columns([0.4, 0.6])
+            with actions_col1:
+                if st.button("Generate", use_container_width=True):
                     if svc_utils.is_valid_params(an_sample_size, an_sample_interval):
-                        # Save uploaded file to data folder using cached function
                         file_path = process_uploaded_file(uploaded_file, DATA_DIR)
-                        
                         try:
-                            # Build dataframe depending on extension
                             if file_path.endswith('.bin'):
                                 df = storage_service.read_bin_counts(file_path, an_sample_size)
                             else:
@@ -577,57 +582,55 @@ def render_data_collection_tab():
                             st.error(f"❌ Analysis failed: {str(e)}")
                     else:
                         st.error("❌ Invalid parameters. Sample size must be divisible by 8.")
-            
-            with analysis_btn_col2:
-                if st.button("📁 Open Output Folder", use_container_width=True):
-                    if os.name == 'nt':  # Windows
+            with actions_col2:
+                if st.button("Open Output Folder", use_container_width=True):
+                    if os.name == 'nt':
                         os.startfile(DATA_DIR)
-                    else:  # Linux/macOS
+                    else:
                         import subprocess
                         subprocess.run(['xdg-open', DATA_DIR])
         
-        # File concatenation section
-        st.subheader("🔗 Concatenate Multiple CSV Files")
-        st.info("💡 **Tip**: Navigate to the data folder to find your CSV files")
+        st.markdown("---")
+        st.subheader("Concatenate Multiple CSV Files")
         
-        concat_files = st.file_uploader(
-            "Select multiple CSV files to concatenate:",
-            type=['csv'],
-            accept_multiple_files=True,
-            help="Select multiple CSV files with the same sample size and interval from the data folder"
-        )
+        cc_params_col1, cc_params_col2 = st.columns(2)
+        with cc_params_col1:
+            concat_sample_size = st.number_input(
+                "Sample Size (bits):",
+                min_value=8,
+                value=2048,
+                step=8,
+                key="concat_sample_size"
+            )
+        with cc_params_col2:
+            concat_sample_interval = st.number_input(
+                "Sample Interval (seconds):",
+                min_value=1,
+                value=1,
+                step=1,
+                key="concat_sample_interval"
+            )
         
-        if concat_files:
-            concat_col1, concat_col2 = st.columns(2)
-            
-            with concat_col1:
-                concat_sample_size = st.number_input(
-                    "Sample Size (bits):",
-                    min_value=8,
-                    value=2048,
-                    step=8,
-                    key="concat_sample_size"
-                )
-            
-            with concat_col2:
-                concat_sample_interval = st.number_input(
-                    "Sample Interval (seconds):",
-                    min_value=1,
-                    value=1,
-                    step=1,
-                    key="concat_sample_interval"
-                )
-            
-            if st.button("🔗 Concatenate Files", use_container_width=True):
-                if len(concat_files) > 1:
-                    # Save uploaded files to data folder using cached function
+        row_label, row_uploader, row_button = st.columns([0.25, 0.55, 0.2])
+        with row_label:
+            st.markdown("Select files:")
+        with row_uploader:
+            concat_files = st.file_uploader(
+                "Select multiple CSV files to concatenate:",
+                type=['csv'],
+                accept_multiple_files=True,
+                help="Select multiple CSV files with the same sample size and interval from the data folder",
+                label_visibility="collapsed",
+                key="concat_uploader"
+            )
+        with row_button:
+            if st.button("Concatenate", use_container_width=True):
+                if concat_files and len(concat_files) > 1:
                     file_paths = []
                     for file in concat_files:
                         file_path = process_uploaded_file(file, DATA_DIR)
                         file_paths.append(file_path)
-                    
                     try:
-                        # Create output stem with timestamp and parameters
                         out_stem = time.strftime(f"%Y%m%dT%H%M%S_concat_s{concat_sample_size}_i{concat_sample_interval}")
                         out_path = storage_service.concat_csv_files([*file_paths], out_stem)
                         st.success(f"✅ Files concatenated successfully! Saved: {out_path}")
@@ -637,146 +640,121 @@ def render_data_collection_tab():
                     st.warning("⚠️ Please select at least 2 files to concatenate.")
 
 def render_live_plot_tab():
-    st.header("📈 Live Plot")
+    st.subheader("📈 Live Plot")
     
-    # Create two columns
-    col1, col2 = st.columns([1, 2])
-    
-    with col1:
-        st.subheader("⚙️ Options")
+    # ========= Side-by-side layout: Options (left) | Live Plot (right) =========
+    with st.container(border=True):
+        left, right = st.columns([0.9, 2.1])
         
-        # RNG Device Selection for live plot
-        live_rng_type = st.radio(
-            "Choose RNG Device:",
-            ["BitBabbler", "TrueRNG3", "PseudoRNG"],
-            index=0,
-            key="live_rng"
-        )
-        
-        # Device Status Indicator for Live Plot (cached) and manual refresh
-        cols_status_live = st.columns([3, 1])
-        with cols_status_live[0]:
-            if live_rng_type == "BitBabbler":
-                if st.session_state.get('bb_detected'):
-                    st.success("✅ BitBabbler device detected and ready")
-                else:
-                    st.error(f"❌ BitBabbler device not available: {st.session_state.get('bb_error','')}")
-            elif live_rng_type == "TrueRNG3":
-                if st.session_state.get('trng_detected'):
-                    st.success("✅ TrueRNG3 device detected and ready")
-                else:
-                    st.error("❌ TrueRNG3 device not detected")
-            elif live_rng_type == "PseudoRNG":
-                st.info("ℹ️ PseudoRNG (software-based) - always available")
-        with cols_status_live[1]:
-            if st.button("🔄 Refresh", key="live_refresh", use_container_width=True):
-                refresh_device_status()
-                st.rerun()
-        
-        # Device-specific options
-        if live_rng_type == "BitBabbler":
-            live_xor_mode = st.selectbox(
-                "RAW(0)/XOR (1,2,3,4):",
-                options=[0, 1, 2, 3, 4],
-                index=0,
-                key="live_xor"
-            )
-        else:
-            live_xor_mode = 0
-        
-        # Live plot parameters
-        live_sample_size = st.number_input(
-            "Sample Size (bits):",
-            min_value=8,
-            value=2048,
-            step=8,
-            key="live_sample_size"
-        )
-        
-        live_sample_interval = st.number_input(
-            "Sample Interval (seconds):",
-            min_value=1,
-            value=1,
-            step=1,
-            key="live_sample_interval"
-        )
-        
-        # Live plot controls
-        if not st.session_state.live_plotting:
-            if st.button("▶️ Start Live Plot", type="primary", use_container_width=True):
-                start_live_plotting(live_rng_type, live_xor_mode, live_sample_size, live_sample_interval)
-        else:
-            if st.button("⏹️ Stop Live Plot", type="secondary", use_container_width=True):
-                stop_live_plotting()
-        
-        # Status
-        if st.session_state.live_plotting:
-            st.success("🟢 Live Plotting Active")
-        else:
-            st.info("🟡 Live Plot Idle")
-    
-    with col2:
-        st.subheader("📊 Live Z-Score Chart")
-        
-
-        
-        # Auto-updating live chart
-        # Only run fragment when live plotting
-        run_every = st.session_state.sample_interval if st.session_state.live_plotting else None
-        
-        @st.fragment(run_every=run_every)
-        def update_live_chart():
-            if st.session_state.live_plotting:
-                # Generate new data
-                with perf_timer("collect_live_plot_sample"):
-                    collect_live_plot_sample()
+        with left:
+            st.subheader("Options")
             
-            if st.session_state.zscore_data and st.session_state.index_data:
-                with perf_timer("plot_prepare"):
-                    fig = go.Figure()
-                fig.add_trace(go.Scatter(
-                    x=st.session_state.index_data,
-                    y=st.session_state.zscore_data,
-                    mode='lines',
-                    name='Z-Score',
-                    line=dict(color='orange', width=2)
-                ))
-                
-                with perf_timer("plot_layout"):
-                    fig.update_layout(
-                        title="Live Z-Score Plot",
-                        xaxis_title=f"Number of samples (one sample every {st.session_state.sample_interval} second(s))",
-                        yaxis_title=f"Z-Score - Sample Size = {st.session_state.sample_size} bits",
-                        height=400,
-                        showlegend=False,
-                        uirevision=True,
-                        transition_duration=0
-                    )
-                
-                with perf_timer("plot_render"):
-                    st.plotly_chart(fig, use_container_width=True)
-                
-                # Show current statistics
-                if st.session_state.zscore_data:
-                    current_zscore = st.session_state.zscore_data[-1]
-                    current_samples = st.session_state.index_data[-1]
-                    
-                    col_stat1, col_stat2, col_stat3 = st.columns(3)
-                    with col_stat1:
-                        st.metric("Current Z-Score", f"{current_zscore:.3f}")
-                    with col_stat2:
-                        st.metric("Samples Collected", current_samples)
-                    with col_stat3:
-                        if current_zscore > 2:
-                            st.metric("Status", "🔴 High", delta="Above +2σ")
-                        elif current_zscore < -2:
-                            st.metric("Status", "🔴 Low", delta="Below -2σ")
+            opt_left, opt_mid = st.columns([1, 1])
+            
+            with opt_left:
+                live_rng_type = st.radio(
+                    "Choose RNG",
+                    ["BitBabbler", "TrueRNG3", "PseudoRNG"],
+                    index=0,
+                    key="live_rng"
+                )
+                cols_status_live = st.columns([3, 1])
+                with cols_status_live[0]:
+                    if live_rng_type == "BitBabbler":
+                        if st.session_state.get('bb_detected'):
+                            st.success("✅ BitBabbler ready")
                         else:
-                            st.metric("Status", "🟢 Normal", delta="Within ±2σ")
-            else:
-                st.info("📊 Chart will appear here when live plotting starts")
+                            st.error(f"❌ BitBabbler unavailable: {st.session_state.get('bb_error','')}")
+                    elif live_rng_type == "TrueRNG3":
+                        if st.session_state.get('trng_detected'):
+                            st.success("✅ TrueRNG3 ready")
+                        else:
+                            st.error("❌ TrueRNG3 not detected")
+                    elif live_rng_type == "PseudoRNG":
+                        st.info("ℹ️ PseudoRNG (software)")
+                with cols_status_live[1]:
+                    if st.button("🔄", key="live_refresh", help="Refresh devices", use_container_width=True):
+                        refresh_device_status()
+                        st.rerun()
+            
+            with opt_mid:
+                if live_rng_type == "BitBabbler":
+                    live_xor_mode = st.selectbox(
+                        "RAW(0)/XOR (1,2,3,4):",
+                        options=[0, 1, 2, 3, 4],
+                        index=0,
+                        key="live_xor"
+                    )
+                else:
+                    live_xor_mode = 0
+                live_sample_size = st.number_input(
+                    "Sample Size (bits):",
+                    min_value=8,
+                    value=2048,
+                    step=8,
+                    key="live_sample_size"
+                )
+                live_sample_interval = st.number_input(
+                    "Sample Interval (s):",
+                    min_value=1,
+                    value=1,
+                    step=1,
+                    key="live_sample_interval"
+                )
+            
+            # Start/Stop row
+            start_col, status_col = st.columns([1, 1])
+            with start_col:
+                if not st.session_state.live_plotting:
+                    if st.button("Start", type="primary", use_container_width=True, key="live_start_btn"):
+                        start_live_plotting(live_rng_type, live_xor_mode, live_sample_size, live_sample_interval)
+                else:
+                    if st.button("Stop", type="secondary", use_container_width=True, key="live_stop_btn"):
+                        stop_live_plotting()
+            with status_col:
+                if st.session_state.live_plotting:
+                    st.success("🟢 Active")
+                else:
+                    st.caption("Idle")
         
-        update_live_chart()
+        with right:
+            st.subheader("Live Plot")
+            run_every = st.session_state.sample_interval if st.session_state.live_plotting else None
+            
+            @st.fragment(run_every=run_every)
+            def update_live_chart():
+                if st.session_state.live_plotting:
+                    with perf_timer("collect_live_plot_sample"):
+                        collect_live_plot_sample()
+                
+                if st.session_state.zscore_data and st.session_state.index_data:
+                    with perf_timer("plot_prepare"):
+                        fig = go.Figure()
+                    fig.add_trace(go.Scatter(
+                        x=st.session_state.index_data,
+                        y=st.session_state.zscore_data,
+                        mode='lines',
+                        name='Z-Score',
+                        line=dict(color='orange', width=2)
+                    ))
+                    
+                    with perf_timer("plot_layout"):
+                        fig.update_layout(
+                            title="Live Plot",
+                            xaxis_title=f"Number of samples (one sample every {st.session_state.sample_interval} second(s))",
+                            yaxis_title=f"Z-Score - Sample Size = {st.session_state.sample_size} bits",
+                            height=480,
+                            showlegend=False,
+                            uirevision=True,
+                            transition_duration=0
+                        )
+                    
+                    with perf_timer("plot_render"):
+                        st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.empty()
+            
+            update_live_chart()
 
 def render_instructions_tab():
     st.header("📖 Instructions")
