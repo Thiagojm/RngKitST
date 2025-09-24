@@ -1102,9 +1102,8 @@ def collect_live_plot_sample():
     values = st.session_state.current_values
     file_name = st.session_state.file_name
     
-    # Catch up loop to avoid missing samples due to jitter
-    loops = 0
-    while (now + timedelta(seconds=JITTER_TOLERANCE_SEC)) >= st.session_state['next_live_sample_time'] and loops < 3:
+    # For live chart, collect at most one sample per update tick to avoid bursts
+    if (now + timedelta(seconds=JITTER_TOLERANCE_SEC)) >= st.session_state['next_live_sample_time']:
         try:
             if values['live_bit_ac']:
                 collect_live_bitbabbler_sample(values, file_name)
@@ -1115,11 +1114,9 @@ def collect_live_plot_sample():
             
             st.session_state.last_update_time = now
             st.session_state['next_live_sample_time'] = st.session_state['next_live_sample_time'] + timedelta(seconds=st.session_state.sample_interval)
-            loops += 1
         except Exception as e:
             print(f"Live plotting error: {e}")
             st.session_state.live_plotting = False
-            break
 
 def collect_live_bitbabbler_sample(values, file_name):
     """Collect a single live BitBabbler sample"""
